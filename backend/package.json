@@ -1,10 +1,26 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "EMS backend API",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "test": "echo \"No backend tests configured yet\""
+  },
+  "keywords": [
+    "employee-management",
+    "hr",
+    "api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
   "dependencies": {
-    "@prisma/client": "^7.10.1",
+    "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -17,13 +33,6 @@
     "mysql2": "^3.24.6",
     "zod": "^4.6.7"
   },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
@@ -33,7 +42,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^26.6.5",
-    "prisma": "^8.0.0-rc.27",
+    "prisma": "^5.22.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   }
