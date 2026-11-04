@@ -346,7 +346,153 @@ h1 {
   color: #bfdbfe;
 }
 
+.status-pill.active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #bbf7d0;
+}
+
+.status-pill.probation {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+}
+
+.status-pill.on_leave {
+  background: rgba(251, 146, 60, 0.12);
+  color: #fed7aa;
+}
+
+.status-pill.inactive {
+  background: rgba(148, 163, 184, 0.12);
+  color: #dfeaf7;
+}
+
+.status-pill.pending {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+}
+
+.status-pill.approved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #bbf7d0;
+}
+
+.status-pill.rejected {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+}
+
+.toolbar-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.5fr) repeat(2, minmax(150px, 1fr)) auto;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.toolbar-row.single-line {
+  grid-template-columns: minmax(200px, 2fr) minmax(140px, 0.75fr);
+}
+
+.input-field,
+.form-panel input,
+.form-panel select {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 0.72rem 0.8rem;
+  color: #eff6ff;
+}
+
+.form-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 16px;
+  background: rgba(9, 16, 27, 0.6);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.form-panel label {
+  display: grid;
+  gap: 0.45rem;
+  color: #dfeafd;
+  font-size: 0.9rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.button-row.right-align {
+  justify-content: flex-end;
+}
+
+.primary-button.compact,
+.ghost-button.compact {
+  padding: 0.7rem 0.95rem;
+  border-radius: 10px;
+}
+
+.ghost-button.success {
+  background: rgba(34, 197, 94, 0.12);
+  color: #bbf7d0;
+}
+
+.ghost-button.danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+}
+
+.metric-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  overflow: hidden;
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.9), rgba(45, 212, 191, 0.9));
+}
+
+.muted-copy {
+  color: #9fbad7;
+  font-size: 0.78rem;
+}
+
+.empty-state {
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.2);
+  color: #cfe0f8;
+  background: rgba(15, 23, 42, 0.4);
+}
+
 @media (max-width: 820px) {
+  .toolbar-row,
+  .toolbar-row.single-line {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row {
+    flex-wrap: wrap;
+  }
   .shell {
     grid-template-columns: 1fr;
   }

@@ -59,6 +59,19 @@ type DashboardSummary = {
   recentHires: EmployeeRecord[];
 };
 
+type EmployeeFormState = {
+  employeeNumber: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  departmentId: string;
+  jobTitle: string;
+  managerId: string;
+  hireDate: string;
+  employmentStatus: EmployeeRecord['employmentStatus'];
+};
+
 const API_BASE = (import.meta.env.VITE_API_URL as string) ?? 'http://localhost:4000/api';
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -293,6 +306,8 @@ function DashboardPage() {
   if (loading) return <Card title="Loading dashboard">Preparing analytics...</Card>;
   if (!summary) return <Card title="No data">Unable to load dashboard summary.</Card>;
 
+  const maxDepartmentSize = Math.max(...summary.employeesByDepartment.map((item) => item.total), 1);
+
   return (
     <div className="stack">
       <div className="stats-grid">
@@ -306,9 +321,14 @@ function DashboardPage() {
         <Card title="Department distribution">
           <div className="metric-list">
             {summary.employeesByDepartment.map((item) => (
-              <div key={item.name} className="metric-row">
-                <span>{item.name}</span>
-                <strong>{item.total}</strong>
+              <div key={item.name} className="metric-group">
+                <div className="metric-row">
+                  <span>{item.name}</span>
+                  <strong>{item.total}</strong>
+                </div>
+                <div className="progress-track">
+                  <span style={{ width: `${(item.total / maxDepartmentSize) * 100}%` }} />
+                </div>
               </div>
             ))}
           </div>
@@ -334,40 +354,236 @@ function DashboardPage() {
 
 function EmployeesPage() {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState<EmployeeFormState>(() => createDefaultEmployeeForm());
+
+  const loadEmployees = async () => {
+    try {
+      const [employeeResponse, departmentResponse] = await Promise.all([
+        apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+        apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
+      ]);
+
+      setEmployees(employeeResponse.employees);
+      setDepartments(departmentResponse.departments);
+      if (departmentResponse.departments[0]) {
+        setForm((current) => ({ ...current, departmentId: departmentResponse.departments[0].id }));
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadEmployees = async () => {
-      const response = await apiFetch<{ employees: EmployeeRecord[] }>('/employees');
-      setEmployees(response.employees);
-    };
-
     void loadEmployees();
   }, []);
 
+  const filteredEmployees = employees.filter((employee) => {
+    const matchesSearch = `${employee.firstName} ${employee.lastName} ${employee.email}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || employee.employmentStatus === statusFilter;
+    const matchesDepartment = departmentFilter === 'all' || employee.departmentId === departmentFilter;
+
+    return matchesSearch && matchesStatus && matchesDepartment;
+  });
+
+  const departmentLookup = new Map(departments.map((department) => [department.id, department.name]));
+
+  const handleCreateEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setFormError('');
+
+    try {
+      const payload = {
+        ...form,
+        managerId: form.managerId || null,
+        phone: form.phone || '+1-555-0100',
+        departmentId: form.departmentId || departments[0]?.id || 'dept-1',
+        employeeNumber: form.employeeNumber || `EMP-${Date.now()}`,
+      };
+
+      const result = await apiFetch<{ employee: EmployeeRecord }>('/employees', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setEmployees((current) => [result.employee, ...current]);
+      setForm(createDefaultEmployeeForm());
+      setIsCreating(false);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to create employee.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Card title="Employee directory">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Employee #</th>
-            <th>Role</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {employees.map((employee) => (
-            <tr key={employee.id}>
-              <td>
-                {employee.firstName} {employee.lastName}
-              </td>
-              <td>{employee.employeeNumber}</td>
-              <td>{employee.jobTitle}</td>
-              <td>{employee.employmentStatus}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="stack">
+        <div className="toolbar-row">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search employees"
+            className="input-field"
+          />
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="input-field">
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="probation">Probation</option>
+            <option value="on_leave">On leave</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="input-field">
+            <option value="all">All departments</option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="primary-button compact" onClick={() => setIsCreating((current) => !current)}>
+            {isCreating ? 'Close form' : 'Add employee'}
+          </button>
+        </div>
+
+        {isCreating ? (
+          <form onSubmit={handleCreateEmployee} className="form-panel">
+            <div className="form-grid">
+              <label>
+                First name
+                <input
+                  value={form.firstName}
+                  onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
+                />
+              </label>
+              <label>
+                Last name
+                <input
+                  value={form.lastName}
+                  onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
+                />
+              </label>
+              <label>
+                Employee #
+                <input
+                  value={form.employeeNumber}
+                  onChange={(event) => setForm((current) => ({ ...current, employeeNumber: event.target.value }))}
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  value={form.phone}
+                  onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                />
+              </label>
+              <label>
+                Job title
+                <input
+                  value={form.jobTitle}
+                  onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))}
+                />
+              </label>
+              <label>
+                Department
+                <select
+                  value={form.departmentId}
+                  onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}
+                >
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Hire date
+                <input
+                  type="date"
+                  value={form.hireDate}
+                  onChange={(event) => setForm((current) => ({ ...current, hireDate: event.target.value }))}
+                />
+              </label>
+              <label>
+                Employment status
+                <select
+                  value={form.employmentStatus}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, employmentStatus: event.target.value as EmployeeRecord['employmentStatus'] }))
+                  }
+                >
+                  <option value="active">Active</option>
+                  <option value="probation">Probation</option>
+                  <option value="on_leave">On leave</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </label>
+            </div>
+            {formError ? <div className="error-banner">{formError}</div> : null}
+            <div className="button-row right-align">
+              <button type="button" className="ghost-button compact" onClick={() => setIsCreating(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-button compact" disabled={submitting}>
+                {submitting ? 'Saving...' : 'Save employee'}
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {loading ? (
+          <div className="muted-copy">Loading employee directory...</div>
+        ) : filteredEmployees.length ? (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Employee #</th>
+                <th>Department</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredEmployees.map((employee) => (
+                <tr key={employee.id}>
+                  <td>
+                    {employee.firstName} {employee.lastName}
+                    <div className="muted-copy">{employee.email}</div>
+                  </td>
+                  <td>{employee.employeeNumber}</td>
+                  <td>{departmentLookup.get(employee.departmentId) ?? 'Unassigned'}</td>
+                  <td>
+                    <span className={`status-pill ${employee.employmentStatus}`}>{employee.employmentStatus.replace('_', ' ')}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="empty-state">No employees match the current filters.</div>
+        )}
+      </div>
     </Card>
   );
 }
@@ -400,31 +616,94 @@ function DepartmentsPage() {
 
 function LeavePage() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | LeaveRequestRecord['status']>('all');
 
   useEffect(() => {
     const loadLeaveRequests = async () => {
-      const response = await apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests');
-      setLeaveRequests(response.leaveRequests);
+      const [leaveResponse, employeeResponse] = await Promise.all([
+        apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests'),
+        apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+      ]);
+
+      setLeaveRequests(leaveResponse.leaveRequests);
+      setEmployees(employeeResponse.employees);
     };
 
     void loadLeaveRequests();
   }, []);
 
+  const employeeLookup = new Map(employees.map((employee) => [employee.id, `${employee.firstName} ${employee.lastName}`]));
+
+  const filteredLeaveRequests = leaveRequests.filter((leaveRequest) => {
+    const employeeName = employeeLookup.get(leaveRequest.employeeId) ?? 'Unknown employee';
+    const matchesSearch = `${employeeName} ${leaveRequest.leaveType} ${leaveRequest.reason}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || leaveRequest.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
+    const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>(`/leave-requests/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+
+    setLeaveRequests((current) => current.map((item) => (item.id === id ? result.leaveRequest : item)));
+  };
+
   return (
     <Card title="Leave requests">
-      <div className="card-list">
-        {leaveRequests.map((item) => (
-          <div key={item.id} className="mini-card">
-            <div className="row-between">
-              <strong>{item.leaveType}</strong>
-              <span className="status-pill">{item.status}</span>
-            </div>
-            <span>
-              {item.startDate} → {item.endDate}
-            </span>
-            <small>{item.reason}</small>
+      <div className="stack">
+        <div className="toolbar-row single-line">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search leave requests"
+            className="input-field"
+          />
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="input-field">
+            <option value="all">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+
+        {filteredLeaveRequests.length ? (
+          <div className="card-list">
+            {filteredLeaveRequests.map((item) => (
+              <div key={item.id} className="mini-card">
+                <div className="row-between">
+                  <strong>{employeeLookup.get(item.employeeId) ?? 'Unknown employee'}</strong>
+                  <span className={`status-pill ${item.status}`}>{item.status}</span>
+                </div>
+                <div className="row-between muted-copy">
+                  <span>{item.leaveType}</span>
+                  <span>
+                    {formatDate(item.startDate)} → {formatDate(item.endDate)}
+                  </span>
+                </div>
+                <small>{item.reason}</small>
+                {item.status === 'pending' ? (
+                  <div className="button-row">
+                    <button type="button" className="ghost-button compact success" onClick={() => void updateLeaveStatus(item.id, 'approved')}>
+                      Approve
+                    </button>
+                    <button type="button" className="ghost-button compact danger" onClick={() => void updateLeaveStatus(item.id, 'rejected')}>
+                      Reject
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
-        ))}
+        ) : (
+          <div className="empty-state">No leave requests match the current filters.</div>
+        )}
       </div>
     </Card>
   );
@@ -448,6 +727,29 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
       {children}
     </section>
   );
+}
+
+function createDefaultEmployeeForm(): EmployeeFormState {
+  return {
+    employeeNumber: 'EMP-200',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '+1-555-0100',
+    departmentId: 'dept-1',
+    jobTitle: 'Operations Specialist',
+    managerId: '',
+    hireDate: new Date().toISOString().slice(0, 10),
+    employmentStatus: 'active',
+  };
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 export default App;
