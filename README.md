@@ -1,7 +1,8 @@
-<<<<<<< HEAD
 # Employee Management System (EMS)
 
-This project is a full-stack employee management system built with a React + TypeScript frontend and an Express + TypeScript backend. It is designed as a practical HR application for managing employees, departments, leave requests, and dashboard analytics.
+This project is a full-stack employee management system built with a React + TypeScript frontend and an Express + TypeScript backend. It is designed to help teams manage employees, departments, leave requests, and dashboard analytics in a practical HR workflow.
+
+It is used to control and monitor employee records and operations across the organization.
 
 ## Stack
 
@@ -52,7 +53,3 @@ Use the built-in seeded account:
 ## Security and limitations
 
 This is a demo that follows common secure patterns, but it is not a substitute for a production security review. Always validate with your hosting environment, network rules, and compliance requirements before using it in a live organization.
-=======
-# Employee-Management-System
-it is used to control all employees 
->>>>>>> 522d89ab618b63de963843d0fe77aa119567bd18
