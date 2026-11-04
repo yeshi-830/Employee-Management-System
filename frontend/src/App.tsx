@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   ArrowUpRight,
@@ -234,7 +234,7 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
     { to: '/employees', label: 'Employees', icon: Users },
     { to: '/departments', label: 'Departments', icon: Building2 },
     { to: '/leave-requests', label: 'Leave requests', icon: CalendarCheck2 },
-  ];
+  ].filter((item) => item.to !== '/departments' || session.role !== 'employee');
 
   return (
     <div className="shell">
@@ -296,6 +296,7 @@ function DashboardPage({ session }: { session: User }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
+  const [todayLabel] = useState(() => formatLongDate(new Date()));
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState('');
@@ -305,8 +306,6 @@ function DashboardPage({ session }: { session: User }) {
 
   useEffect(() => {
     let isCurrent = true;
-    setLoading(true);
-    setError('');
 
     Promise.all([
       apiFetch<DashboardSummary>('/dashboard/summary'),
@@ -333,6 +332,12 @@ function DashboardPage({ session }: { session: User }) {
       isCurrent = false;
     };
   }, [refreshKey]);
+
+  const refreshDashboard = () => {
+    setLoading(true);
+    setError('');
+    setRefreshKey((current) => current + 1);
+  };
 
   const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager';
 
@@ -439,7 +444,7 @@ function DashboardPage({ session }: { session: User }) {
         <div className="stack">
           <div className="error-banner">{error || 'Unable to load dashboard data.'}</div>
           <div>
-            <button type="button" className="ghost-button compact" onClick={() => setRefreshKey((current) => current + 1)}>
+            <button type="button" className="ghost-button compact" onClick={refreshDashboard}>
               <RefreshCw size={16} />
               Try again
             </button>
@@ -453,7 +458,7 @@ function DashboardPage({ session }: { session: User }) {
     <div className="dashboard stack">
       <section className="dashboard-hero">
         <div>
-          <div className="eyebrow">{formatLongDate(new Date())}</div>
+          <div className="eyebrow">{todayLabel}</div>
           <h1>People at a glance</h1>
           <p>Welcome back, {session.name.split(' ')[0]}. Here’s your team’s latest overview.</p>
         </div>
@@ -464,7 +469,7 @@ function DashboardPage({ session }: { session: User }) {
           <button
             type="button"
             className="ghost-button compact"
-            onClick={() => setRefreshKey((current) => current + 1)}
+            onClick={refreshDashboard}
             disabled={loading}
           >
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
@@ -673,7 +678,7 @@ function DashboardPage({ session }: { session: User }) {
         <Card title="Quick actions">
           <div className="dashboard-card-content quick-actions">
             {session.role !== 'employee' ? (
-              <NavLink to="/employees" className="quick-action">
+              <NavLink to="/employees?new=1" className="quick-action">
                 <span className="quick-action-icon"><UserPlus size={18} /></span>
                 <span><strong>Add an employee</strong><small>Create a new employee record</small></span>
                 <ArrowUpRight size={16} />
@@ -706,10 +711,11 @@ function DashboardPage({ session }: { session: User }) {
 }
 
 function EmployeesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isCreating, setIsCreating] = useState(() => searchParams.get('new') === '1');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -774,6 +780,7 @@ function EmployeesPage() {
       setEmployees((current) => [result.employee, ...current]);
       setForm(createDefaultEmployeeForm());
       setIsCreating(false);
+      setSearchParams({}, { replace: true });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Unable to create employee.');
     } finally {
@@ -806,7 +813,15 @@ function EmployeesPage() {
               </option>
             ))}
           </select>
-          <button type="button" className="primary-button compact" onClick={() => setIsCreating((current) => !current)}>
+          <button
+            type="button"
+            className="primary-button compact"
+            onClick={() => {
+              const next = !isCreating;
+              setIsCreating(next);
+              setSearchParams(next ? { new: '1' } : {}, { replace: true });
+            }}
+          >
             {isCreating ? 'Close form' : 'Add employee'}
           </button>
         </div>
@@ -895,7 +910,14 @@ function EmployeesPage() {
             </div>
             {formError ? <div className="error-banner">{formError}</div> : null}
             <div className="button-row right-align">
-              <button type="button" className="ghost-button compact" onClick={() => setIsCreating(false)}>
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={() => {
+                  setIsCreating(false);
+                  setSearchParams({}, { replace: true });
+                }}
+              >
                 Cancel
               </button>
               <button type="submit" className="primary-button compact" disabled={submitting}>
