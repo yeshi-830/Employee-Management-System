@@ -168,6 +168,7 @@ export function getDashboardSummary() {
     totalEmployees,
     activeEmployees,
     employeesByDepartment: departments.map((department) => ({
+      id: department.id,
       name: department.name,
       total: employees.filter((employee) => employee.departmentId === department.id && !employee.isArchived).length,
     })),

@@ -2,12 +2,20 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import {
   Activity,
+  ArrowUpRight,
   Building2,
+  CalendarDays,
   CalendarCheck2,
+  Check,
+  Clock3,
+  Download,
   LayoutDashboard,
   LogOut,
+  RefreshCw,
   ShieldCheck,
+  UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 
 type Role = 'admin' | 'hr_manager' | 'department_manager' | 'employee';
@@ -55,7 +63,7 @@ type DashboardSummary = {
   totalEmployees: number;
   activeEmployees: number;
   pendingLeave: number;
-  employeesByDepartment: Array<{ name: string; total: number }>;
+  employeesByDepartment: Array<{ id: string; name: string; total: number }>;
   recentHires: EmployeeRecord[];
 };
 
@@ -274,7 +282,7 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
 
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<DashboardPage session={session} />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/departments" element={<DepartmentsPage />} />
           <Route path="/leave-requests" element={<LeavePage />} />
@@ -284,69 +292,414 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
   );
 }
 
-function DashboardPage() {
+function DashboardPage({ session }: { session: User }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [updatingLeaveId, setUpdatingLeaveId] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        const result = await apiFetch<DashboardSummary>('/dashboard/summary');
-        setSummary(result);
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
+    let isCurrent = true;
+    setLoading(true);
+    setError('');
+
+    Promise.all([
+      apiFetch<DashboardSummary>('/dashboard/summary'),
+      apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+      apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests'),
+    ])
+      .then(([dashboard, employeeResponse, leaveResponse]) => {
+        if (!isCurrent) return;
+        setSummary(dashboard);
+        setEmployees(employeeResponse.employees);
+        setLeaveRequests(leaveResponse.leaveRequests);
+        setLastUpdated(new Date());
+      })
+      .catch((requestError: unknown) => {
+        if (isCurrent) {
+          setError(requestError instanceof Error ? requestError.message : 'Unable to load dashboard data.');
+        }
+      })
+      .finally(() => {
+        if (isCurrent) setLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
     };
+  }, [refreshKey]);
 
-    void fetchDashboard();
-  }, []);
+  const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager';
 
-  if (loading) return <Card title="Loading dashboard">Preparing analytics...</Card>;
-  if (!summary) return <Card title="No data">Unable to load dashboard summary.</Card>;
+  const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
+    setUpdatingLeaveId(id);
+    setActionError('');
 
-  const maxDepartmentSize = Math.max(...summary.employeesByDepartment.map((item) => item.total), 1);
+    try {
+      const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>(`/leave-requests/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      setLeaveRequests((current) => current.map((item) => (item.id === id ? result.leaveRequest : item)));
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'Unable to update this leave request.');
+    } finally {
+      setUpdatingLeaveId(null);
+    }
+  };
+
+  const exportReport = () => {
+    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+    const departmentById = new Map(summary?.employeesByDepartment.map((department) => [department.id, department.name]) ?? []);
+    const rows = [
+      ['Record type', 'Employee number', 'Employee name', 'Email', 'Job title', 'Department', 'Employment status', 'Leave type', 'Start date', 'End date', 'Leave status'],
+      ...employees
+        .filter((employee) => !employee.isArchived)
+        .map((employee) => [
+          'Employee',
+          employee.employeeNumber,
+          `${employee.firstName} ${employee.lastName}`,
+          employee.email,
+          employee.jobTitle,
+          departmentById.get(employee.departmentId) ?? 'Unassigned',
+          employee.employmentStatus,
+          '',
+          '',
+          '',
+          '',
+        ]),
+      ...leaveRequests.map((leave) => {
+        const employee = employeeById.get(leave.employeeId);
+        return [
+          'Leave request',
+          employee?.employeeNumber ?? '',
+          employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown employee',
+          employee?.email ?? '',
+          employee?.jobTitle ?? '',
+          employee ? departmentById.get(employee.departmentId) ?? 'Unassigned' : '',
+          employee?.employmentStatus ?? '',
+          leave.leaveType,
+          leave.startDate,
+          leave.endDate,
+          leave.status,
+        ];
+      }),
+    ];
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => {
+            const safeValue = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+            return `"${safeValue.replaceAll('"', '""')}"`;
+          })
+          .join(','),
+      )
+      .join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `northstar-workforce-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const activeEmployees = employees.filter((employee) => !employee.isArchived);
+  const pendingRequests = leaveRequests.filter((request) => request.status === 'pending');
+  const upcomingLeave = leaveRequests
+    .filter((request) => request.status === 'approved' && new Date(`${request.endDate.slice(0, 10)}T00:00:00`) >= startOfToday())
+    .sort((first, second) => first.startDate.localeCompare(second.startDate))
+    .slice(0, 4);
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+
+  const statusCounts = [
+    { status: 'active', label: 'Active', total: activeEmployees.filter((employee) => employee.employmentStatus === 'active').length },
+    { status: 'probation', label: 'Probation', total: activeEmployees.filter((employee) => employee.employmentStatus === 'probation').length },
+    { status: 'on_leave', label: 'On leave', total: activeEmployees.filter((employee) => employee.employmentStatus === 'on_leave').length },
+    { status: 'inactive', label: 'Inactive', total: activeEmployees.filter((employee) => employee.employmentStatus === 'inactive').length },
+  ];
+  const maxDepartmentSize = Math.max(...(summary?.employeesByDepartment.map((item) => item.total) ?? [0]), 1);
+  const activeRate = summary?.totalEmployees
+    ? Math.round((summary.activeEmployees / summary.totalEmployees) * 100)
+    : 0;
+
+  if (loading && !summary) {
+    return <Card title="Loading dashboard">Preparing your people overview...</Card>;
+  }
+
+  if (!summary) {
+    return (
+      <Card title="Dashboard unavailable">
+        <div className="stack">
+          <div className="error-banner">{error || 'Unable to load dashboard data.'}</div>
+          <div>
+            <button type="button" className="ghost-button compact" onClick={() => setRefreshKey((current) => current + 1)}>
+              <RefreshCw size={16} />
+              Try again
+            </button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
 
   return (
-    <div className="stack">
-      <div className="stats-grid">
-        <StatCard label="Total employees" value={String(summary.totalEmployees)} />
-        <StatCard label="Active employees" value={String(summary.activeEmployees)} />
-        <StatCard label="Pending leave" value={String(summary.pendingLeave)} />
-        <StatCard label="Departments" value={String(summary.employeesByDepartment.length)} />
+    <div className="dashboard stack">
+      <section className="dashboard-hero">
+        <div>
+          <div className="eyebrow">{formatLongDate(new Date())}</div>
+          <h1>People at a glance</h1>
+          <p>Welcome back, {session.name.split(' ')[0]}. Here’s your team’s latest overview.</p>
+        </div>
+        <div className="dashboard-controls">
+          <span className="last-updated">
+            {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Loading'}
+          </span>
+          <button
+            type="button"
+            className="ghost-button compact"
+            onClick={() => setRefreshKey((current) => current + 1)}
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? 'spin' : ''} />
+            Refresh
+          </button>
+          <button type="button" className="primary-button compact" onClick={exportReport} disabled={loading}>
+            <Download size={16} />
+            Export report
+          </button>
+        </div>
+      </section>
+
+      {error ? <div className="error-banner dashboard-error">{error}</div> : null}
+      {actionError ? <div className="error-banner dashboard-error">{actionError}</div> : null}
+
+      <div className="stats-grid dashboard-stats">
+        <StatCard
+          label="Team members"
+          value={String(summary.totalEmployees)}
+          detail={`${summary.employeesByDepartment.length} departments`}
+          icon={<Users size={18} />}
+          tone="blue"
+        />
+        <StatCard
+          label="Active employees"
+          value={String(summary.activeEmployees)}
+          detail={`${activeRate}% of current workforce`}
+          icon={<Activity size={18} />}
+          tone="green"
+        />
+        <StatCard
+          label="Leave approvals"
+          value={String(pendingRequests.length)}
+          detail={pendingRequests.length ? 'Waiting for review' : 'Nothing waiting for review'}
+          icon={<Clock3 size={18} />}
+          tone="amber"
+        />
+        <StatCard
+          label="Departments"
+          value={String(summary.employeesByDepartment.length)}
+          detail="Across the organization"
+          icon={<Building2 size={18} />}
+          tone="violet"
+        />
       </div>
 
-      <div className="panel-grid">
-        <Card title="Department distribution">
-          <div className="metric-list">
-            {summary.employeesByDepartment.map((item) => (
-              <div key={item.name} className="metric-group">
-                <div className="metric-row">
-                  <span>{item.name}</span>
-                  <strong>{item.total}</strong>
-                </div>
-                <div className="progress-track">
-                  <span style={{ width: `${(item.total / maxDepartmentSize) * 100}%` }} />
-                </div>
+      <div className="dashboard-grid">
+        <Card title="Workforce composition">
+          <div className="dashboard-card-content">
+            <div className="workforce-summary">
+              <div className="workforce-total">{summary.totalEmployees}</div>
+              <div>
+                <strong>People in your workforce</strong>
+                <span className="muted-copy">Current employment status</span>
               </div>
-            ))}
+            </div>
+            <div className="status-breakdown">
+              {statusCounts.map(({ status, label, total }) => (
+                <div key={status} className="status-metric">
+                  <div className="metric-row">
+                    <span><i className={`legend-dot ${status}`} />{label}</span>
+                    <strong>{total}</strong>
+                  </div>
+                  <div className="progress-track">
+                    <span className={`progress-${status}`} style={{ width: `${summary.totalEmployees ? (total / summary.totalEmployees) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Department distribution">
+          <div className="dashboard-card-content">
+            {summary.employeesByDepartment.length ? (
+              <div className="department-bars">
+                {summary.employeesByDepartment
+                  .slice()
+                  .sort((first, second) => second.total - first.total)
+                  .map((department, index) => (
+                    <div className="department-bar-row" key={department.name}>
+                      <div className="department-bar-label">
+                        <span className={`department-marker marker-${index % 4}`} />
+                        <span>{department.name}</span>
+                        <strong>{department.total}</strong>
+                      </div>
+                      <div className="progress-track">
+                        <span style={{ width: `${(department.total / maxDepartmentSize) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <div className="empty-state">No department data available.</div>
+            )}
+            {session.role !== 'employee' ? (
+              <NavLink to="/departments" className="text-link">
+                View departments <ArrowUpRight size={15} />
+              </NavLink>
+            ) : null}
           </div>
         </Card>
 
         <Card title="Recent hires">
-          <ul className="list">
+          <div className="dashboard-card-content">
             {summary.recentHires.length ? (
-              summary.recentHires.map((hire) => (
-                <li key={hire.id}>
-                  {hire.firstName} {hire.lastName} · {hire.jobTitle}
-                </li>
-              ))
+              <div className="hire-list">
+                {summary.recentHires.map((hire) => (
+                  <div className="hire-row" key={hire.id}>
+                    <div className="avatar">{`${hire.firstName[0] ?? ''}${hire.lastName[0] ?? ''}`}</div>
+                    <div className="hire-details">
+                      <strong>{hire.firstName} {hire.lastName}</strong>
+                      <span>{hire.jobTitle}</span>
+                    </div>
+                    <span className="hire-date">{formatDate(hire.hireDate)}</span>
+                  </div>
+                ))}
+              </div>
             ) : (
-              <li>No recent hires recorded.</li>
+              <div className="empty-state">No recent hires recorded.</div>
             )}
-          </ul>
+            <NavLink to="/employees" className="text-link">
+              Browse employee directory <ArrowUpRight size={15} />
+            </NavLink>
+          </div>
         </Card>
+
+        <Card title="Leave requests">
+          <div className="dashboard-card-content">
+            {pendingRequests.length ? (
+              <div className="leave-list">
+                {pendingRequests.slice(0, 3).map((request) => {
+                  const employee = employeeById.get(request.employeeId);
+                  return (
+                    <div className="leave-row" key={request.id}>
+                      <div className="leave-row-heading">
+                        <div>
+                          <strong>{employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown employee'}</strong>
+                          <span>{request.leaveType} · {formatDate(request.startDate)} – {formatDate(request.endDate)}</span>
+                        </div>
+                        <span className="status-pill pending">Pending</span>
+                      </div>
+                      {request.reason ? <p className="leave-reason">{request.reason}</p> : null}
+                      {canReviewLeave ? (
+                        <div className="button-row leave-actions">
+                          <button
+                            type="button"
+                            className="ghost-button compact success"
+                            onClick={() => void updateLeaveStatus(request.id, 'approved')}
+                            disabled={updatingLeaveId === request.id}
+                          >
+                            <Check size={15} /> Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button compact danger"
+                            onClick={() => void updateLeaveStatus(request.id, 'rejected')}
+                            disabled={updatingLeaveId === request.id}
+                          >
+                            <X size={15} /> Reject
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state">You’re all caught up. No requests need review.</div>
+            )}
+            <NavLink to="/leave-requests" className="text-link">
+              View all requests <ArrowUpRight size={15} />
+            </NavLink>
+          </div>
+        </Card>
+
+        <Card title="Upcoming time off">
+          <div className="dashboard-card-content">
+            {upcomingLeave.length ? (
+              <div className="upcoming-list">
+                {upcomingLeave.map((request) => {
+                  const employee = employeeById.get(request.employeeId);
+                  return (
+                    <div className="upcoming-row" key={request.id}>
+                      <div className="date-tile">
+                        <span>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: 'short' })}</span>
+                        <strong>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).getDate()}</strong>
+                      </div>
+                      <div className="hire-details">
+                        <strong>{employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown employee'}</strong>
+                        <span>{request.leaveType} · through {formatDate(request.endDate)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state">No upcoming approved time off.</div>
+            )}
+            <NavLink to="/leave-requests" className="text-link">
+              Open leave calendar <ArrowUpRight size={15} />
+            </NavLink>
+          </div>
+        </Card>
+
+        <Card title="Quick actions">
+          <div className="dashboard-card-content quick-actions">
+            {session.role !== 'employee' ? (
+              <NavLink to="/employees" className="quick-action">
+                <span className="quick-action-icon"><UserPlus size={18} /></span>
+                <span><strong>Add an employee</strong><small>Create a new employee record</small></span>
+                <ArrowUpRight size={16} />
+              </NavLink>
+            ) : null}
+            <NavLink to="/employees" className="quick-action">
+              <span className="quick-action-icon"><Users size={18} /></span>
+              <span><strong>Employee directory</strong><small>Search the current workforce</small></span>
+              <ArrowUpRight size={16} />
+            </NavLink>
+            <NavLink to="/leave-requests" className="quick-action">
+              <span className="quick-action-icon"><CalendarDays size={18} /></span>
+              <span><strong>Leave management</strong><small>Review requests and time off</small></span>
+              <ArrowUpRight size={16} />
+            </NavLink>
+            <button type="button" className="quick-action quick-action-button" onClick={exportReport}>
+              <span className="quick-action-icon"><Download size={18} /></span>
+              <span><strong>Download workforce report</strong><small>Export employees and leave data</small></span>
+              <ArrowUpRight size={16} />
+            </button>
+          </div>
+        </Card>
+      </div>
+      <div className="dashboard-footer">
+        <CalendarCheck2 size={15} />
+        Workforce data is based on the latest records in your employee system.
       </div>
     </div>
   );
@@ -709,11 +1062,27 @@ function LeavePage() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  detail,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: React.ReactNode;
+  tone: 'blue' | 'green' | 'amber' | 'violet';
+}) {
   return (
-    <div className="stat-card">
-      <div className="eyebrow">{label}</div>
-      <strong>{value}</strong>
+    <div className={`stat-card dashboard-stat ${tone}`}>
+      <div className="stat-card-top">
+        <div className="eyebrow">{label}</div>
+        <span className="stat-icon">{icon}</span>
+      </div>
+      <strong className="stat-value">{value}</strong>
+      <span className="stat-detail">{detail}</span>
     </div>
   );
 }
@@ -745,11 +1114,26 @@ function createDefaultEmployeeForm(): EmployeeFormState {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, {
+  return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function formatLongDate(value: Date) {
+  return value.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function startOfToday() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
 }
 
 export default App;
