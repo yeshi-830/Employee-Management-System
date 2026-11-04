@@ -198,7 +198,7 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
         <div className="brand-row">
           <div className="brand-mark">N</div>
           <div>
-            <div className="eyebrow">Northstar Labs</div>
+            <div className="eyebrow">CEO MHRU</div>
             <h1>Employee Management System</h1>
           </div>
         </div>
@@ -242,7 +242,7 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
         <div className="brand-row sidebar-brand">
           <div className="brand-mark">N</div>
           <div>
-            <div className="eyebrow">Northstar Labs</div>
+            <div className="eyebrow">CEO MHRU</div>
             <strong>EMS</strong>
           </div>
         </div>
@@ -408,7 +408,7 @@ function DashboardPage({ session }: { session: User }) {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `northstar-workforce-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `ceo-mhru-workforce-report-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
