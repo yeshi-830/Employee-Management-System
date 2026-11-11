@@ -1211,8 +1211,8 @@ function LeavePage({ session }: { session: User }) {
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     leaveType: '',
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: new Date().toISOString().slice(0, 10),
+    startDate: '',
+    endDate: '',
     reason: '',
   });
 
