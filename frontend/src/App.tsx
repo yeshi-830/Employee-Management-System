@@ -294,7 +294,6 @@ function DashboardPage({ session }: { session: User }) {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
   const [todayLabel] = useState(() => formatLongDate(new Date()));
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -713,6 +712,7 @@ function EmployeesPage({ session }: { session: User }) {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [isCreating, setIsCreating] = useState(() => canCreateEmployees && searchParams.get('new') === '1');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
