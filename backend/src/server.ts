@@ -4,7 +4,11 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { Prisma } from '@prisma/client';
+import { ZodError } from 'zod';
 import { env } from './config/env.js';
+import { ApiError } from './lib/apiError.js';
+import { prisma } from './lib/prisma.js';
 import authRouter from './routes/auth.js';
 import dashboardRouter from './routes/dashboard.js';
 import departmentsRouter from './routes/departments.js';
@@ -21,7 +25,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 app.use(rateLimit({
@@ -55,7 +59,8 @@ app.use('/api/employees', employeesRouter);
 app.use('/api/departments', departmentsRouter);
 app.use('/api/leave-requests', leaveRequestsRouter);
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
+  await prisma.$queryRaw`SELECT 1`;
   return res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -63,7 +68,31 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  if (err instanceof ZodError) {
+    return res.status(400).json({ message: 'Request validation failed.', issues: err.issues });
+  }
+
+  if (err instanceof ApiError) {
+    return res.status(err.statusCode).json({ message: err.message });
+  }
+
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({ message: 'A record with the supplied unique value already exists.' });
+    }
+    if (err.code === 'P2025') {
+      return res.status(404).json({ message: 'The requested record was not found.' });
+    }
+    if (err.code === 'P2003') {
+      return res.status(400).json({ message: 'The request references a record that does not exist.' });
+    }
+  }
+
   console.error(err);
 
   return res.status(500).json({
