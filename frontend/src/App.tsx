@@ -47,6 +47,7 @@ type DepartmentRecord = {
   name: string;
   description: string;
   managerId: string | null;
+  employeeCount?: number;
 };
 
 type LeaveRequestRecord = {
@@ -114,27 +115,20 @@ function App() {
   const [session, setSession] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem('ems_user');
-    if (storedUser) {
-      setSession(JSON.parse(storedUser) as User);
-    }
-
-    void checkCurrentUser();
-  }, []);
-
-  const checkCurrentUser = async () => {
+  async function checkCurrentUser() {
     try {
       const result = await apiFetch<{ user: User }>('/auth/me');
       setSession(result.user);
-      localStorage.setItem('ems_user', JSON.stringify(result.user));
     } catch {
       setSession(null);
-      localStorage.removeItem('ems_user');
     } finally {
       setLoadingUser(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    void checkCurrentUser();
+  }, []);
 
   const login = async (email: string, password: string) => {
     const result = await apiFetch<{ user: User; csrfToken: string }>('/auth/login', {
@@ -143,7 +137,6 @@ function App() {
     });
 
     setSession(result.user);
-    localStorage.setItem('ems_user', JSON.stringify(result.user));
     localStorage.setItem('ems_csrf_token', result.csrfToken);
     return result.user;
   };
@@ -151,7 +144,6 @@ function App() {
   const logout = async () => {
     await apiFetch<{ message: string }>('/auth/logout', { method: 'POST' });
     setSession(null);
-    localStorage.removeItem('ems_user');
     localStorage.removeItem('ems_csrf_token');
   };
 
@@ -283,9 +275,9 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage session={session} />} />
-          <Route path="/employees" element={<EmployeesPage />} />
-          <Route path="/departments" element={<DepartmentsPage />} />
-          <Route path="/leave-requests" element={<LeavePage />} />
+          <Route path="/employees" element={<EmployeesPage session={session} />} />
+          <Route path="/departments" element={<DepartmentsPage session={session} />} />
+          <Route path="/leave-requests" element={<LeavePage session={session} />} />
         </Routes>
       </main>
     </div>
@@ -710,12 +702,13 @@ function DashboardPage({ session }: { session: User }) {
   );
 }
 
-function EmployeesPage() {
+function EmployeesPage({ session }: { session: User }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const canCreateEmployees = session.role !== 'employee';
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(() => searchParams.get('new') === '1');
+  const [isCreating, setIsCreating] = useState(() => canCreateEmployees && searchParams.get('new') === '1');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -813,17 +806,19 @@ function EmployeesPage() {
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="primary-button compact"
-            onClick={() => {
-              const next = !isCreating;
-              setIsCreating(next);
-              setSearchParams(next ? { new: '1' } : {}, { replace: true });
-            }}
-          >
-            {isCreating ? 'Close form' : 'Add employee'}
-          </button>
+          {canCreateEmployees ? (
+            <button
+              type="button"
+              className="primary-button compact"
+              onClick={() => {
+                const next = !isCreating;
+                setIsCreating(next);
+                setSearchParams(next ? { new: '1' } : {}, { replace: true });
+              }}
+            >
+              {isCreating ? 'Close form' : 'Add employee'}
+            </button>
+          ) : null}
         </div>
 
         {isCreating ? (
@@ -964,37 +959,171 @@ function EmployeesPage() {
   );
 }
 
-function DepartmentsPage() {
+function DepartmentsPage({ session }: { session: User }) {
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: '', description: '', managerId: '' });
+  const canManageDepartments = session.role === 'admin' || session.role === 'hr_manager';
 
   useEffect(() => {
+    let active = true;
     const loadDepartments = async () => {
-      const response = await apiFetch<{ departments: DepartmentRecord[] }>('/departments');
-      setDepartments(response.departments);
+      try {
+        const [departmentResponse, employeeResponse] = await Promise.all([
+          apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
+          canManageDepartments
+            ? apiFetch<{ employees: EmployeeRecord[] }>('/employees')
+            : Promise.resolve({ employees: [] }),
+        ]);
+        if (!active) return;
+        setDepartments(departmentResponse.departments);
+        setEmployees(employeeResponse.employees);
+      } catch (requestError) {
+        if (active) setError(requestError instanceof Error ? requestError.message : 'Unable to load departments.');
+      } finally {
+        if (active) setLoading(false);
+      }
     };
 
     void loadDepartments();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [canManageDepartments]);
+
+  const saveDepartment = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const path = editingId ? `/departments/${editingId}` : '/departments';
+      const result = await apiFetch<{ department: DepartmentRecord }>(path, {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          ...form,
+          managerId: form.managerId || null,
+        }),
+      });
+
+      setDepartments((current) =>
+        editingId
+          ? current.map((department) => department.id === editingId ? result.department : department)
+          : [...current, result.department].sort((first, second) => first.name.localeCompare(second.name)),
+      );
+      setEditingId(null);
+      setForm({ name: '', description: '', managerId: '' });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to save department.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Card title="Departments">
-      <div className="card-list">
-        {departments.map((department) => (
-          <div key={department.id} className="mini-card">
-            <strong>{department.name}</strong>
-            <span>{department.description}</span>
+      <div className="stack">
+        {error ? <div className="error-banner">{error}</div> : null}
+        {canManageDepartments ? (
+          <form onSubmit={saveDepartment} className="form-panel">
+            <div className="form-grid">
+              <label>
+                Department name
+                <input
+                  required
+                  maxLength={100}
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </label>
+              <label>
+                Manager
+                <select
+                  value={form.managerId}
+                  onChange={(event) => setForm((current) => ({ ...current, managerId: event.target.value }))}
+                >
+                  <option value="">No manager assigned</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.firstName} {employee.lastName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-wide">
+                Description
+                <input
+                  maxLength={500}
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="button-row right-align">
+              {editingId ? (
+                <button
+                  type="button"
+                  className="ghost-button compact"
+                  onClick={() => {
+                    setEditingId(null);
+                    setForm({ name: '', description: '', managerId: '' });
+                  }}
+                >
+                  Cancel edit
+                </button>
+              ) : null}
+              <button type="submit" className="primary-button compact" disabled={submitting}>
+                {submitting ? 'Saving...' : editingId ? 'Save changes' : 'Add department'}
+              </button>
+            </div>
+          </form>
+        ) : null}
+        {loading ? <div className="muted-copy">Loading departments...</div> : departments.length ? (
+          <div className="card-list">
+            {departments.map((department) => (
+              <div key={department.id} className="mini-card">
+                <div className="row-between">
+                  <strong>{department.name}</strong>
+                  {canManageDepartments ? (
+                    <button
+                      type="button"
+                      className="ghost-button compact"
+                      onClick={() => {
+                        setEditingId(department.id);
+                        setForm({
+                          name: department.name,
+                          description: department.description,
+                          managerId: department.managerId ?? '',
+                        });
+                      }}
+                    >
+                      Edit
+                    </button>
+                  ) : null}
+                </div>
+                <span>{department.description || 'No description provided.'}</span>
+                <small className="muted-copy">{department.employeeCount ?? 0} employees</small>
+              </div>
+            ))}
           </div>
-        ))}
+        ) : (
+          <div className="empty-state">No departments have been created yet.</div>
+        )}
       </div>
     </Card>
   );
 }
 
-function LeavePage() {
+function LeavePage({ session }: { session: User }) {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | LeaveRequestRecord['status']>('all');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const loadLeaveRequests = async () => {
@@ -1023,17 +1152,25 @@ function LeavePage() {
   });
 
   const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
-    const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>(`/leave-requests/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    });
+    setError('');
+    try {
+      const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>(`/leave-requests/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
 
-    setLeaveRequests((current) => current.map((item) => (item.id === id ? result.leaveRequest : item)));
+      setLeaveRequests((current) => current.map((item) => (item.id === id ? result.leaveRequest : item)));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to update this leave request.');
+    }
   };
+
+  const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager';
 
   return (
     <Card title="Leave requests">
       <div className="stack">
+        {error ? <div className="error-banner">{error}</div> : null}
         <div className="toolbar-row single-line">
           <input
             value={search}
@@ -1064,7 +1201,7 @@ function LeavePage() {
                   </span>
                 </div>
                 <small>{item.reason}</small>
-                {item.status === 'pending' ? (
+                {canReviewLeave && item.status === 'pending' ? (
                   <div className="button-row">
                     <button type="button" className="ghost-button compact success" onClick={() => void updateLeaveStatus(item.id, 'approved')}>
                       Approve

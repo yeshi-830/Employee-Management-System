@@ -37,8 +37,8 @@ async function validateManager(managerId: string | null | undefined) {
   if (!employee) throw new ApiError('Department manager must be an existing employee.', 400);
 }
 
-router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_manager']), async (req, res) => {
-  const where = req.user?.role === 'department_manager'
+router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_manager', 'employee']), async (req, res) => {
+  const where = req.user?.role === 'department_manager' || req.user?.role === 'employee'
     ? {
       id: (await prisma.employee.findUnique({
         where: { email: req.user.email },
@@ -97,6 +97,7 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (re
     const updated = await transaction.department.update({
       where: { id },
       data: parsed.data,
+      include: { _count: { select: { employees: { where: { isArchived: false } } } } },
     });
     await transaction.auditEvent.create({
       data: {
