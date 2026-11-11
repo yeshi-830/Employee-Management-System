@@ -93,7 +93,11 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
     }
   }
 
-  console.error(err);
+  if (env.NODE_ENV === 'production') {
+    console.error('Unhandled API error.');
+  } else {
+    console.error(err);
+  }
 
   return res.status(500).json({
     message: env.NODE_ENV === 'production' ? 'An unexpected error occurred.' : 'Internal server error',

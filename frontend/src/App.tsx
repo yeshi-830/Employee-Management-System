@@ -115,19 +115,23 @@ function App() {
   const [session, setSession] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
 
-  async function checkCurrentUser() {
-    try {
-      const result = await apiFetch<{ user: User }>('/auth/me');
-      setSession(result.user);
-    } catch {
-      setSession(null);
-    } finally {
-      setLoadingUser(false);
-    }
-  }
-
   useEffect(() => {
+    let active = true;
+    const checkCurrentUser = async () => {
+      try {
+        const result = await apiFetch<{ user: User }>('/auth/me');
+        if (active) setSession(result.user);
+      } catch {
+        if (active) setSession(null);
+      } finally {
+        if (active) setLoadingUser(false);
+      }
+    };
+
     void checkCurrentUser();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -290,6 +294,7 @@ function DashboardPage({ session }: { session: User }) {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
   const [todayLabel] = useState(() => formatLongDate(new Date()));
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -716,27 +721,32 @@ function EmployeesPage({ session }: { session: User }) {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<EmployeeFormState>(() => createDefaultEmployeeForm());
 
-  const loadEmployees = async () => {
-    try {
-      const [employeeResponse, departmentResponse] = await Promise.all([
-        apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
-        apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
-      ]);
-
-      setEmployees(employeeResponse.employees);
-      setDepartments(departmentResponse.departments);
-      if (departmentResponse.departments[0]) {
-        setForm((current) => ({ ...current, departmentId: departmentResponse.departments[0].id }));
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    let active = true;
+    const loadEmployees = async () => {
+      try {
+        const [employeeResponse, departmentResponse] = await Promise.all([
+          apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+          apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
+        ]);
+        if (!active) return;
+
+        setEmployees(employeeResponse.employees);
+        setDepartments(departmentResponse.departments);
+        if (departmentResponse.departments[0]) {
+          setForm((current) => ({ ...current, departmentId: departmentResponse.departments[0].id }));
+        }
+      } catch (requestError) {
+        if (active) setLoadError(requestError instanceof Error ? requestError.message : 'Unable to load employees.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
     void loadEmployees();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const filteredEmployees = employees.filter((employee) => {
@@ -923,6 +933,7 @@ function EmployeesPage({ session }: { session: User }) {
           </form>
         ) : null}
 
+        {loadError ? <div className="error-banner">{loadError}</div> : null}
         {loading ? (
           <div className="muted-copy">Loading employee directory...</div>
         ) : filteredEmployees.length ? (

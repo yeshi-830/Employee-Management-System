@@ -3,6 +3,10 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('The demo seed is disabled in production.');
+  }
+
   const hr = await prisma.user.upsert({
     where: { email: 'hr@northstar.example' },
     update: {},
