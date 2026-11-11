@@ -148,7 +148,7 @@ router.post('/', authenticate, authorize(['admin', 'hr_manager', 'department_man
   const departmentId = input.departmentId ?? null;
   const managerId = input.managerId ?? null;
   const employeeNumber = input.employeeNumber
-    ?? `EMP-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString('hex').toUpperCase()}`;
+    ?? `EMP-${Date.now().toString(36).toUpperCase()}-${randomBytes(6).toString('hex').toUpperCase()}`;
   const created = await prisma.$transaction(async (transaction) => {
     const employee = await transaction.employee.create({
       data: {
