@@ -769,7 +769,7 @@ function EmployeesPage() {
         managerId: form.managerId || null,
         phone: form.phone || '+1-555-0100',
         departmentId: form.departmentId || departments[0]?.id || 'dept-1',
-        employeeNumber: form.employeeNumber || `EMP-${Date.now()}`,
+        ...(form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
       };
 
       const result = await apiFetch<{ employee: EmployeeRecord }>('/employees', {
@@ -846,6 +846,7 @@ function EmployeesPage() {
               <label>
                 Employee #
                 <input
+                  placeholder="Generated when left blank"
                   value={form.employeeNumber}
                   onChange={(event) => setForm((current) => ({ ...current, employeeNumber: event.target.value }))}
                 />
@@ -1122,7 +1123,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function createDefaultEmployeeForm(): EmployeeFormState {
   return {
-    employeeNumber: 'EMP-200',
+    employeeNumber: '',
     firstName: '',
     lastName: '',
     email: '',
