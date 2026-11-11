@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { EmploymentStatus, Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
-import { ApiError, getRouteParam } from '../lib/apiError.js';
+import { ApiError, getRouteParam, parsePagination } from '../lib/apiError.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, authorize, type AuthUser } from '../middleware/auth.js';
 
@@ -87,8 +87,7 @@ async function canManageEmployee(user: AuthUser, employee: { id: string; departm
 }
 
 router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_manager', 'employee']), async (req, res) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 100));
+  const { page, pageSize } = parsePagination(req);
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const where: Prisma.EmployeeWhereInput = {};
 

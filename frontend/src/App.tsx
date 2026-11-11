@@ -53,6 +53,7 @@ type DepartmentRecord = {
 type LeaveRequestRecord = {
   id: string;
   employeeId: string;
+  employeeName?: string;
   leaveType: string;
   startDate: string;
   endDate: string;
@@ -72,6 +73,13 @@ type DashboardSummary = {
   pendingLeave: number;
   employeesByDepartment: Array<{ id: string; name: string; total: number }>;
   recentHires: EmployeeRecord[];
+};
+
+type Pagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 };
 
 type EmployeeFormState = {
@@ -357,7 +365,7 @@ function DashboardPage({ session }: { session: User }) {
     setRefreshKey((current) => current + 1);
   };
 
-  const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager';
+  const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager' || session.role === 'department_manager';
 
   const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
     setUpdatingLeaveId(id);
@@ -401,7 +409,7 @@ function DashboardPage({ session }: { session: User }) {
         return [
           'Leave request',
           employee?.employeeNumber ?? '',
-          employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown employee',
+          employee ? `${employee.firstName} ${employee.lastName}` : leave.employeeName ?? 'Unknown employee',
           employee?.email ?? '',
           employee?.jobTitle ?? '',
           employee ? departmentById.get(employee.departmentId) ?? 'Unassigned' : '',
@@ -625,7 +633,7 @@ function DashboardPage({ session }: { session: User }) {
                     <div className="leave-row" key={request.id}>
                       <div className="leave-row-heading">
                         <div>
-                          <strong>{employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown employee'}</strong>
+                          <strong>{employee ? `${employee.firstName} ${employee.lastName}` : request.employeeName ?? 'Unknown employee'}</strong>
                           <span>{request.leaveType} · {formatDate(request.startDate)} – {formatDate(request.endDate)}</span>
                         </div>
                         <span className="status-pill pending">Pending</span>
@@ -677,7 +685,7 @@ function DashboardPage({ session }: { session: User }) {
                         <strong>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).getDate()}</strong>
                       </div>
                       <div className="hire-details">
-                        <strong>{employee ? `${employee.firstName} ${employee.lastName}` : 'Unknown employee'}</strong>
+                        <strong>{employee ? `${employee.firstName} ${employee.lastName}` : request.employeeName ?? 'Unknown employee'}</strong>
                         <span>{request.leaveType} · through {formatDate(request.endDate)}</span>
                       </div>
                     </div>
@@ -735,6 +743,8 @@ function EmployeesPage({ session }: { session: User }) {
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [isCreating, setIsCreating] = useState(() => canCreateEmployees && searchParams.get('new') === '1');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
@@ -747,16 +757,25 @@ function EmployeesPage({ session }: { session: User }) {
     let active = true;
     const loadEmployees = async () => {
       try {
+        const query = new URLSearchParams({ page: String(page), pageSize: '20' });
+        if (search.trim()) query.set('search', search.trim());
+        if (statusFilter !== 'all') query.set('status', statusFilter);
+        if (departmentFilter !== 'all') query.set('departmentId', departmentFilter);
         const [employeeResponse, departmentResponse] = await Promise.all([
-          apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+          apiFetch<{ employees: EmployeeRecord[]; pagination: Pagination }>(`/employees?${query}`),
           apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
         ]);
         if (!active) return;
 
         setEmployees(employeeResponse.employees);
+        setPagination(employeeResponse.pagination);
         setDepartments(departmentResponse.departments);
-        if (departmentResponse.departments[0]) {
-          setForm((current) => ({ ...current, departmentId: departmentResponse.departments[0].id }));
+        setLoadError('');
+        const defaultDepartmentId = departmentResponse.departments[0]?.id;
+        if (defaultDepartmentId) {
+          setForm((current) => departmentResponse.departments.some((department) => department.id === current.departmentId)
+            ? current
+            : { ...current, departmentId: defaultDepartmentId });
         }
       } catch (requestError) {
         if (active) setLoadError(requestError instanceof Error ? requestError.message : 'Unable to load employees.');
@@ -769,17 +788,9 @@ function EmployeesPage({ session }: { session: User }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [page, search, statusFilter, departmentFilter]);
 
-  const filteredEmployees = employees.filter((employee) => {
-    const matchesSearch = `${employee.firstName} ${employee.lastName} ${employee.email}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || employee.employmentStatus === statusFilter;
-    const matchesDepartment = departmentFilter === 'all' || employee.departmentId === departmentFilter;
-
-    return matchesSearch && matchesStatus && matchesDepartment;
-  });
+  const filteredEmployees = employees;
 
   const departmentLookup = new Map(departments.map((department) => [department.id, department.name]));
 
@@ -819,18 +830,35 @@ function EmployeesPage({ session }: { session: User }) {
         <div className="toolbar-row">
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             placeholder="Search employees"
             className="input-field"
           />
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="input-field">
+          <select
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as typeof statusFilter);
+              setPage(1);
+            }}
+            className="input-field"
+          >
             <option value="all">All statuses</option>
             <option value="active">Active</option>
             <option value="probation">Probation</option>
             <option value="on_leave">On leave</option>
             <option value="inactive">Inactive</option>
           </select>
-          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="input-field">
+          <select
+            value={departmentFilter}
+            onChange={(event) => {
+              setDepartmentFilter(event.target.value);
+              setPage(1);
+            }}
+            className="input-field"
+          >
             <option value="all">All departments</option>
             {departments.map((department) => (
               <option key={department.id} value={department.id}>
@@ -987,6 +1015,25 @@ function EmployeesPage({ session }: { session: User }) {
         ) : (
           <div className="empty-state">No employees match the current filters.</div>
         )}
+        {pagination.totalPages > 1 ? (
+          <div className="button-row right-align">
+            <span className="muted-copy">
+              Showing {(pagination.page - 1) * pagination.pageSize + 1}–{Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
+            </span>
+            <button type="button" className="ghost-button compact" onClick={() => setPage((current) => current - 1)} disabled={page <= 1}>
+              Previous
+            </button>
+            <span className="muted-copy">Page {page} of {pagination.totalPages}</span>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => setPage((current) => current + 1)}
+              disabled={page >= pagination.totalPages}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
       </div>
     </Card>
   );
@@ -1158,6 +1205,8 @@ function LeavePage({ session }: { session: User }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [statusFilter, setStatusFilter] = useState<'all' | LeaveRequestRecord['status']>('all');
   const [error, setError] = useState('');
   const [form, setForm] = useState({
@@ -1171,14 +1220,18 @@ function LeavePage({ session }: { session: User }) {
     let active = true;
     const loadLeaveRequests = async () => {
       try {
+        const query = new URLSearchParams({ page: String(page), pageSize: '20' });
+        if (search.trim()) query.set('search', search.trim());
+        if (statusFilter !== 'all') query.set('status', statusFilter);
         const [leaveResponse, employeeResponse] = await Promise.all([
-          apiFetch<{ leaveRequests: LeaveRequestRecord[]; leaveTypes: LeaveTypeRecord[] }>('/leave-requests'),
+          apiFetch<{ leaveRequests: LeaveRequestRecord[]; leaveTypes: LeaveTypeRecord[]; pagination: Pagination }>(`/leave-requests?${query}`),
           apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
         ]);
 
         if (!active) return;
         setLeaveRequests(leaveResponse.leaveRequests);
         setLeaveTypes(leaveResponse.leaveTypes);
+        setPagination(leaveResponse.pagination);
         setEmployees(employeeResponse.employees);
         setForm((current) => ({ ...current, leaveType: leaveResponse.leaveTypes[0]?.name ?? '' }));
       } catch (requestError) {
@@ -1192,19 +1245,11 @@ function LeavePage({ session }: { session: User }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [page, search, statusFilter]);
 
   const employeeLookup = new Map(employees.map((employee) => [employee.id, `${employee.firstName} ${employee.lastName}`]));
 
-  const filteredLeaveRequests = leaveRequests.filter((leaveRequest) => {
-    const employeeName = employeeLookup.get(leaveRequest.employeeId) ?? 'Unknown employee';
-    const matchesSearch = `${employeeName} ${leaveRequest.leaveType} ${leaveRequest.reason}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || leaveRequest.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
+  const filteredLeaveRequests = leaveRequests;
 
   const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
     setError('');
@@ -1220,7 +1265,7 @@ function LeavePage({ session }: { session: User }) {
     }
   };
 
-  const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager';
+  const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager' || session.role === 'department_manager';
   const canApplyLeave = session.role === 'employee';
 
   const submitLeaveRequest = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1306,11 +1351,21 @@ function LeavePage({ session }: { session: User }) {
         <div className="toolbar-row single-line">
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             placeholder="Search leave requests"
             className="input-field"
           />
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="input-field">
+          <select
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as typeof statusFilter);
+              setPage(1);
+            }}
+            className="input-field"
+          >
             <option value="all">All statuses</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
@@ -1323,7 +1378,7 @@ function LeavePage({ session }: { session: User }) {
             {filteredLeaveRequests.map((item) => (
               <div key={item.id} className="mini-card">
                 <div className="row-between">
-                  <strong>{employeeLookup.get(item.employeeId) ?? 'Unknown employee'}</strong>
+                  <strong>{employeeLookup.get(item.employeeId) ?? item.employeeName ?? 'Unknown employee'}</strong>
                   <span className={`status-pill ${item.status}`}>{item.status}</span>
                 </div>
                 <div className="row-between muted-copy">
@@ -1349,6 +1404,25 @@ function LeavePage({ session }: { session: User }) {
         ) : (
           <div className="empty-state">No leave requests match the current filters.</div>
         )}
+        {pagination.totalPages > 1 ? (
+          <div className="button-row right-align">
+            <span className="muted-copy">
+              Showing {(pagination.page - 1) * pagination.pageSize + 1}–{Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
+            </span>
+            <button type="button" className="ghost-button compact" onClick={() => setPage((current) => current - 1)} disabled={page <= 1}>
+              Previous
+            </button>
+            <span className="muted-copy">Page {page} of {pagination.totalPages}</span>
+            <button
+              type="button"
+              className="ghost-button compact"
+              onClick={() => setPage((current) => current + 1)}
+              disabled={page >= pagination.totalPages}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
       </div>
     </Card>
   );

@@ -1,7 +1,7 @@
 import type { LeaveStatus, Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
-import { ApiError, getRouteParam } from '../lib/apiError.js';
+import { ApiError, getRouteParam, parsePagination } from '../lib/apiError.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
@@ -31,10 +31,12 @@ function toLeaveRequestRecord(request: {
   reason: string | null;
   status: LeaveStatus;
   leaveType: { name: string };
+  employee: { firstName: string; lastName: string };
 }) {
   return {
     id: request.id,
     employeeId: request.employeeId,
+    employeeName: `${request.employee.firstName} ${request.employee.lastName}`,
     leaveType: request.leaveType.name,
     startDate: request.startDate.toISOString().slice(0, 10),
     endDate: request.endDate.toISOString().slice(0, 10),
@@ -44,9 +46,18 @@ function toLeaveRequestRecord(request: {
 }
 
 router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_manager', 'employee']), async (req, res) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 100));
+  const { page, pageSize } = parsePagination(req);
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const where: Prisma.LeaveRequestWhereInput = {};
+
+  if (search) {
+    where.OR = [
+      { reason: { contains: search } },
+      { employee: { is: { firstName: { contains: search } } } },
+      { employee: { is: { lastName: { contains: search } } } },
+      { leaveType: { is: { name: { contains: search } } } },
+    ];
+  }
 
   if (typeof req.query.status === 'string' && req.query.status !== 'all') {
     const status = z.enum(leaveStatuses).safeParse(req.query.status);
@@ -71,7 +82,10 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
   const [leaveRequests, total, leaveTypes] = await prisma.$transaction([
     prisma.leaveRequest.findMany({
       where,
-      include: { leaveType: { select: { name: true } } },
+      include: {
+        leaveType: { select: { name: true } },
+        employee: { select: { firstName: true, lastName: true } },
+      },
       orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -148,7 +162,10 @@ router.post('/', authenticate, authorize(['admin', 'hr_manager', 'department_man
         endDate,
         reason: input.reason ?? null,
       },
-      include: { leaveType: { select: { name: true } } },
+      include: {
+        leaveType: { select: { name: true } },
+        employee: { select: { firstName: true, lastName: true } },
+      },
     });
     await transaction.auditEvent.create({
       data: {
@@ -164,11 +181,28 @@ router.post('/', authenticate, authorize(['admin', 'hr_manager', 'department_man
   return res.status(201).json({ leaveRequest: toLeaveRequestRecord(created) });
 });
 
-router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (req, res) => {
+router.patch('/:id', authenticate, authorize(['admin', 'hr_manager', 'department_manager']), async (req, res) => {
   const id = getRouteParam(req, 'id');
   const parsed = z.object({ status: z.enum(leaveStatuses) }).strict().safeParse(req.body);
   if (!parsed.success) throw parsed.error;
   if (parsed.data.status === 'pending') throw new ApiError('A request cannot be returned to pending.', 400);
+
+  if (req.user?.role === 'department_manager') {
+    const [manager, request] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { email: req.user.email },
+        select: { departmentId: true },
+      }),
+      prisma.leaveRequest.findUnique({
+        where: { id },
+        select: { employee: { select: { departmentId: true } } },
+      }),
+    ]);
+    if (!request) throw new ApiError('Leave request not found.', 404);
+    if (!manager?.departmentId || manager.departmentId !== request.employee.departmentId) {
+      throw new ApiError('Department managers may only review requests from their own department.', 403);
+    }
+  }
 
   const updated = await prisma.$transaction(async (transaction) => {
     const result = await transaction.leaveRequest.updateMany({
@@ -186,7 +220,10 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (re
 
     const request = await transaction.leaveRequest.findUniqueOrThrow({
       where: { id },
-      include: { leaveType: { select: { name: true } } },
+      include: {
+        leaveType: { select: { name: true } },
+        employee: { select: { firstName: true, lastName: true } },
+      },
     });
     await transaction.auditEvent.create({
       data: {
