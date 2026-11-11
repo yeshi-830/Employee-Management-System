@@ -64,10 +64,12 @@ async function validateLineManager(managerId: string | null | undefined, departm
   if (!managerId) return;
   const manager = await prisma.employee.findUnique({
     where: { id: managerId },
-    select: { departmentId: true, isArchived: true },
+    select: { departmentId: true, isArchived: true, employmentStatus: true },
   });
-  if (!manager || manager.isArchived) throw new ApiError('Line manager must be an active employee.', 400);
-  if (departmentId && manager.departmentId !== departmentId) {
+  if (!manager || manager.isArchived || manager.employmentStatus === 'INACTIVE') {
+    throw new ApiError('Line manager must be an active employee.', 400);
+  }
+  if (manager.departmentId !== departmentId) {
     throw new ApiError('Line manager must belong to the employee department.', 400);
   }
 }

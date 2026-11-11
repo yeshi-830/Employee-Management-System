@@ -32,9 +32,11 @@ async function validateManager(managerId: string | null | undefined) {
   if (!managerId) return;
   const employee = await prisma.employee.findUnique({
     where: { id: managerId },
-    select: { id: true },
+    select: { id: true, isArchived: true, employmentStatus: true },
   });
-  if (!employee) throw new ApiError('Department manager must be an existing employee.', 400);
+  if (!employee || employee.isArchived || employee.employmentStatus === 'INACTIVE') {
+    throw new ApiError('Department manager must be an active employee.', 400);
+  }
 }
 
 router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_manager', 'employee']), async (req, res) => {

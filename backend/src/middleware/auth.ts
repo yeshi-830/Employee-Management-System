@@ -53,7 +53,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
   let userId: string;
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET);
+    const payload = jwt.verify(token, env.JWT_SECRET, { issuer: 'employee-management-system' });
     if (typeof payload === 'string' || typeof payload.sub !== 'string') {
       return res.status(401).json({ message: 'Authentication failed.' });
     }

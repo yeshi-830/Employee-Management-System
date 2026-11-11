@@ -68,7 +68,7 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
     where.employee = { is: { departmentId: manager?.departmentId ?? '__no_department__' } };
   }
 
-  const [leaveRequests, total] = await prisma.$transaction([
+  const [leaveRequests, total, leaveTypes] = await prisma.$transaction([
     prisma.leaveRequest.findMany({
       where,
       include: { leaveType: { select: { name: true } } },
@@ -77,10 +77,15 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
       take: pageSize,
     }),
     prisma.leaveRequest.count({ where }),
+    prisma.leaveType.findMany({
+      select: { id: true, name: true, daysAllowed: true },
+      orderBy: { name: 'asc' },
+    }),
   ]);
 
   return res.json({
     leaveRequests: leaveRequests.map(toLeaveRequestRecord),
+    leaveTypes,
     pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
   });
 });

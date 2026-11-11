@@ -60,6 +60,12 @@ type LeaveRequestRecord = {
   status: 'pending' | 'approved' | 'rejected';
 };
 
+type LeaveTypeRecord = {
+  id: string;
+  name: string;
+  daysAllowed: number;
+};
+
 type DashboardSummary = {
   totalEmployees: number;
   activeEmployees: number;
@@ -1147,23 +1153,45 @@ function DepartmentsPage({ session }: { session: User }) {
 
 function LeavePage({ session }: { session: User }) {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | LeaveRequestRecord['status']>('all');
   const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    leaveType: '',
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    reason: '',
+  });
 
   useEffect(() => {
+    let active = true;
     const loadLeaveRequests = async () => {
-      const [leaveResponse, employeeResponse] = await Promise.all([
-        apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests'),
-        apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
-      ]);
+      try {
+        const [leaveResponse, employeeResponse] = await Promise.all([
+          apiFetch<{ leaveRequests: LeaveRequestRecord[]; leaveTypes: LeaveTypeRecord[] }>('/leave-requests'),
+          apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+        ]);
 
-      setLeaveRequests(leaveResponse.leaveRequests);
-      setEmployees(employeeResponse.employees);
+        if (!active) return;
+        setLeaveRequests(leaveResponse.leaveRequests);
+        setLeaveTypes(leaveResponse.leaveTypes);
+        setEmployees(employeeResponse.employees);
+        setForm((current) => ({ ...current, leaveType: leaveResponse.leaveTypes[0]?.name ?? '' }));
+      } catch (requestError) {
+        if (active) setError(requestError instanceof Error ? requestError.message : 'Unable to load leave requests.');
+      } finally {
+        if (active) setLoading(false);
+      }
     };
 
     void loadLeaveRequests();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const employeeLookup = new Map(employees.map((employee) => [employee.id, `${employee.firstName} ${employee.lastName}`]));
@@ -1193,11 +1221,88 @@ function LeavePage({ session }: { session: User }) {
   };
 
   const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager';
+  const canApplyLeave = session.role === 'employee';
+
+  const submitLeaveRequest = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>('/leave-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          leaveType: form.leaveType,
+          startDate: form.startDate,
+          endDate: form.endDate,
+          reason: form.reason,
+        }),
+      });
+      setLeaveRequests((current) => [result.leaveRequest, ...current]);
+      setForm((current) => ({ ...current, reason: '' }));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to submit your leave request.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Card title="Leave requests">
       <div className="stack">
         {error ? <div className="error-banner">{error}</div> : null}
+        {canApplyLeave ? (
+          <form onSubmit={submitLeaveRequest} className="form-panel">
+            <h4>Request time off</h4>
+            <div className="form-grid">
+              <label>
+                Leave type
+                <select
+                  required
+                  value={form.leaveType}
+                  onChange={(event) => setForm((current) => ({ ...current, leaveType: event.target.value }))}
+                >
+                  {leaveTypes.map((leaveType) => (
+                    <option key={leaveType.id} value={leaveType.name}>{leaveType.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Start date
+                <input
+                  type="date"
+                  required
+                  value={form.startDate}
+                  onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))}
+                />
+              </label>
+              <label>
+                End date
+                <input
+                  type="date"
+                  required
+                  min={form.startDate}
+                  value={form.endDate}
+                  onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))}
+                />
+              </label>
+              <label className="form-wide">
+                Reason
+                <input
+                  maxLength={1000}
+                  value={form.reason}
+                  onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="button-row right-align">
+              <button type="submit" className="primary-button compact" disabled={submitting || loading || !employees.length || !leaveTypes.length}>
+                {submitting ? 'Submitting...' : 'Submit request'}
+              </button>
+            </div>
+            {!loading && !employees.length ? <div className="muted-copy">Your account is not linked to an employee profile.</div> : null}
+          </form>
+        ) : null}
         <div className="toolbar-row single-line">
           <input
             value={search}
@@ -1213,7 +1318,7 @@ function LeavePage({ session }: { session: User }) {
           </select>
         </div>
 
-        {filteredLeaveRequests.length ? (
+        {loading ? <div className="muted-copy">Loading leave requests...</div> : filteredLeaveRequests.length ? (
           <div className="card-list">
             {filteredLeaveRequests.map((item) => (
               <div key={item.id} className="mini-card">
