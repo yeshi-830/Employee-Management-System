@@ -3,15 +3,10 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.auditEvent.deleteMany();
-  await prisma.leaveRequest.deleteMany();
-  await prisma.employee.deleteMany();
-  await prisma.department.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.leaveType.deleteMany();
-
-  const hr = await prisma.user.create({
-    data: {
+  const hr = await prisma.user.upsert({
+    where: { email: 'hr@northstar.example' },
+    update: {},
+    create: {
       email: 'hr@northstar.example',
       password: '$2a$10$QkPpRrY0QJfPeJQp49K5m.h0v7KfK8tBc4b8kJoE0U4wWxn7Hsl9uO',
       firstName: 'Ari',
@@ -21,40 +16,50 @@ async function main() {
     },
   });
 
-  const engineering = await prisma.department.create({
-    data: {
+  const engineering = await prisma.department.upsert({
+    where: { name: 'Engineering' },
+    update: {},
+    create: {
       name: 'Engineering',
       description: 'Product and platform work',
       budget: 120000,
     },
   });
 
-  const people = await prisma.department.create({
-    data: {
+  const people = await prisma.department.upsert({
+    where: { name: 'People Ops' },
+    update: {},
+    create: {
       name: 'People Ops',
       description: 'HR operations and employee lifecycle',
       budget: 45000,
     },
   });
 
-  const annual = await prisma.leaveType.create({
-    data: {
+  const annual = await prisma.leaveType.upsert({
+    where: { name: 'Annual Leave' },
+    update: {},
+    create: {
       name: 'Annual Leave',
       description: 'Regular vacation leave',
       daysAllowed: 20,
     },
   });
 
-  const sick = await prisma.leaveType.create({
-    data: {
+  await prisma.leaveType.upsert({
+    where: { name: 'Sick Leave' },
+    update: {},
+    create: {
       name: 'Sick Leave',
       description: 'Medical absences',
       daysAllowed: 10,
     },
   });
 
-  const manager = await prisma.employee.create({
-    data: {
+  const manager = await prisma.employee.upsert({
+    where: { employeeNumber: 'EMP-101' },
+    update: {},
+    create: {
       employeeNumber: 'EMP-101',
       firstName: 'Nia',
       lastName: 'Cooper',
@@ -67,8 +72,10 @@ async function main() {
     },
   });
 
-  await prisma.employee.create({
-    data: {
+  await prisma.employee.upsert({
+    where: { employeeNumber: 'EMP-102' },
+    update: {},
+    create: {
       employeeNumber: 'EMP-102',
       firstName: 'Leo',
       lastName: 'Hart',
@@ -82,8 +89,10 @@ async function main() {
     },
   });
 
-  await prisma.employee.create({
-    data: {
+  await prisma.employee.upsert({
+    where: { employeeNumber: 'EMP-103' },
+    update: {},
+    create: {
       employeeNumber: 'EMP-103',
       firstName: 'Mila',
       lastName: 'Reed',
@@ -96,26 +105,43 @@ async function main() {
     },
   });
 
-  await prisma.leaveRequest.create({
-    data: {
+  const seededLeave = await prisma.leaveRequest.findFirst({
+    where: {
       employeeId: manager.id,
       leaveTypeId: annual.id,
       startDate: new Date('2026-11-01'),
       endDate: new Date('2026-11-05'),
-      reason: 'Family vacation',
-      status: 'PENDING',
     },
+    select: { id: true },
   });
+  if (!seededLeave) {
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId: manager.id,
+        leaveTypeId: annual.id,
+        startDate: new Date('2026-11-01'),
+        endDate: new Date('2026-11-05'),
+        reason: 'Family vacation',
+        status: 'PENDING',
+      },
+    });
+  }
 
-  await prisma.auditEvent.create({
-    data: {
-      actorId: hr.id,
-      action: 'SEED_DATA_CREATED',
-      entityType: 'system',
-      entityId: 'initial-seed',
-      metadata: { source: 'prisma-seed' },
-    },
+  const seededAudit = await prisma.auditEvent.findFirst({
+    where: { action: 'SEED_DATA_CREATED', entityType: 'system', entityId: 'initial-seed' },
+    select: { id: true },
   });
+  if (!seededAudit) {
+    await prisma.auditEvent.create({
+      data: {
+        actorId: hr.id,
+        action: 'SEED_DATA_CREATED',
+        entityType: 'system',
+        entityId: 'initial-seed',
+        metadata: { source: 'prisma-seed' },
+      },
+    });
+  }
 }
 
 main()
