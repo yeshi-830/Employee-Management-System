@@ -1,7 +1,7 @@
 import type { LeaveStatus, Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
-import { ApiError } from '../lib/apiError.js';
+import { ApiError, getRouteParam } from '../lib/apiError.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
@@ -160,18 +160,19 @@ router.post('/', authenticate, authorize(['admin', 'hr_manager', 'department_man
 });
 
 router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (req, res) => {
+  const id = getRouteParam(req, 'id');
   const parsed = z.object({ status: z.enum(leaveStatuses) }).strict().safeParse(req.body);
   if (!parsed.success) throw parsed.error;
   if (parsed.data.status === 'pending') throw new ApiError('A request cannot be returned to pending.', 400);
 
   const updated = await prisma.$transaction(async (transaction) => {
     const result = await transaction.leaveRequest.updateMany({
-      where: { id: req.params.id, status: 'PENDING' },
+      where: { id, status: 'PENDING' },
       data: { status: parsed.data.status.toUpperCase() as LeaveStatus },
     });
     if (result.count === 0) {
       const exists = await transaction.leaveRequest.findUnique({
-        where: { id: req.params.id },
+        where: { id },
         select: { id: true },
       });
       if (!exists) throw new ApiError('Leave request not found.', 404);
@@ -179,7 +180,7 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (re
     }
 
     const request = await transaction.leaveRequest.findUniqueOrThrow({
-      where: { id: req.params.id },
+      where: { id },
       include: { leaveType: { select: { name: true } } },
     });
     await transaction.auditEvent.create({

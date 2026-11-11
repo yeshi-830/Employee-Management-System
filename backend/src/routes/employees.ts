@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { EmploymentStatus, Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
-import { ApiError } from '../lib/apiError.js';
+import { ApiError, getRouteParam } from '../lib/apiError.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, authorize, type AuthUser } from '../middleware/auth.js';
 
@@ -122,7 +122,8 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
 });
 
 router.get('/:id', authenticate, authorize(['admin', 'hr_manager', 'department_manager', 'employee']), async (req, res) => {
-  const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+  const id = getRouteParam(req, 'id');
+  const employee = await prisma.employee.findUnique({ where: { id } });
 
   if (!employee || !(await canManageEmployee(req.user!, employee))) {
     return res.status(404).json({ message: 'Employee not found.' });
@@ -184,7 +185,8 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager', 'department
   if (Object.keys(parsed.data).length === 0) throw new ApiError('At least one employee field is required.', 400);
 
   const user = req.user!;
-  const existing = await prisma.employee.findUnique({ where: { id: req.params.id } });
+  const id = getRouteParam(req, 'id');
+  const existing = await prisma.employee.findUnique({ where: { id } });
   if (!existing || !(await canManageEmployee(user, existing))) {
     return res.status(404).json({ message: 'Employee not found.' });
   }
@@ -229,9 +231,10 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager', 'department
 });
 
 router.delete('/:id', authenticate, authorize(['admin', 'hr_manager']), async (req, res) => {
+  const id = getRouteParam(req, 'id');
   const employee = await prisma.$transaction(async (transaction) => {
     const archived = await transaction.employee.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { isArchived: true, employmentStatus: 'INACTIVE' },
     });
     await transaction.auditEvent.create({

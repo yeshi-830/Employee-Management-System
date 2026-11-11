@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ApiError } from '../lib/apiError.js';
+import { ApiError, getRouteParam } from '../lib/apiError.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
@@ -87,6 +87,7 @@ router.post('/', authenticate, authorize(['admin', 'hr_manager']), async (req, r
 });
 
 router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (req, res) => {
+  const id = getRouteParam(req, 'id');
   const parsed = departmentSchema.partial().strict().safeParse(req.body);
   if (!parsed.success) throw parsed.error;
   if (Object.keys(parsed.data).length === 0) throw new ApiError('At least one department field is required.', 400);
@@ -94,7 +95,7 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager']), async (re
 
   const department = await prisma.$transaction(async (transaction) => {
     const updated = await transaction.department.update({
-      where: { id: req.params.id },
+      where: { id },
       data: parsed.data,
     });
     await transaction.auditEvent.create({

@@ -39,6 +39,8 @@ model User {
   updatedAt DateTime @updatedAt
 
   auditEvents AuditEvent[]
+
+  @@index([role, isActive])
 }
 
 model Department {
@@ -51,6 +53,9 @@ model Department {
   updatedAt   DateTime  @updatedAt
 
   employees Employee[]
+  manager   Employee? @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+
+  @@index([managerId])
 }
 
 model Employee {
@@ -72,10 +77,13 @@ model Employee {
   department Department? @relation(fields: [departmentId], references: [id])
   manager    Employee?    @relation("ManagerReports", fields: [managerId], references: [id])
   reports    Employee[]   @relation("ManagerReports")
+  managedDepartments Department[] @relation("DepartmentManager")
   leaves     LeaveRequest[]
 
   @@index([departmentId])
   @@index([managerId])
+  @@index([isArchived, employmentStatus])
+  @@index([hireDate])
 }
 
 model LeaveType {
@@ -102,6 +110,9 @@ model LeaveRequest {
 
   employee  Employee  @relation(fields: [employeeId], references: [id])
   leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@index([employeeId, status, startDate, endDate])
+  @@index([status, createdAt])
 }
 
 model AuditEvent {
@@ -116,4 +127,5 @@ model AuditEvent {
   actor User? @relation(fields: [actorId], references: [id])
 
   @@index([entityType, entityId])
+  @@index([createdAt])
 }
