@@ -167,8 +167,8 @@ function App() {
 }
 
 function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<User> }) {
-  const [email, setEmail] = useState('hr@northstar.example');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState(import.meta.env.DEV ? 'hr@northstar.example' : '');
+  const [password, setPassword] = useState(import.meta.env.DEV ? 'Password123!' : '');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -202,11 +202,25 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
         <form onSubmit={handleSubmit} className="auth-form">
           <label>
             Work email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input
+              type="email"
+              autoComplete="username"
+              required
+              maxLength={254}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input
+              type="password"
+              autoComplete="current-password"
+              required
+              maxLength={128}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
           </label>
 
           {error ? <div className="error-banner">{error}</div> : null}
@@ -215,10 +229,12 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
           </button>
         </form>
 
-        <div className="demo-box">
-          <ShieldCheck size={18} />
-          <span>Demo credentials: hr@northstar.example / Password123!</span>
-        </div>
+        {import.meta.env.DEV ? (
+          <div className="demo-box">
+            <ShieldCheck size={18} />
+            <span>Demo credentials: hr@northstar.example / Password123!</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
