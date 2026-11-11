@@ -60,6 +60,18 @@ async function getManagerDepartment(user: AuthUser) {
   });
 }
 
+async function validateLineManager(managerId: string | null | undefined, departmentId: string | null) {
+  if (!managerId) return;
+  const manager = await prisma.employee.findUnique({
+    where: { id: managerId },
+    select: { departmentId: true, isArchived: true },
+  });
+  if (!manager || manager.isArchived) throw new ApiError('Line manager must be an active employee.', 400);
+  if (departmentId && manager.departmentId !== departmentId) {
+    throw new ApiError('Line manager must belong to the employee department.', 400);
+  }
+}
+
 async function canManageEmployee(user: AuthUser, employee: { id: string; departmentId: string | null }) {
   if (user.role === 'admin' || user.role === 'hr_manager') return true;
 
@@ -147,6 +159,7 @@ router.post('/', authenticate, authorize(['admin', 'hr_manager', 'department_man
 
   const departmentId = input.departmentId ?? null;
   const managerId = input.managerId ?? null;
+  await validateLineManager(managerId, departmentId);
   const employeeNumber = input.employeeNumber
     ?? `EMP-${Date.now().toString(36).toUpperCase()}-${randomBytes(6).toString('hex').toUpperCase()}`;
   const created = await prisma.$transaction(async (transaction) => {
@@ -196,6 +209,9 @@ router.patch('/:id', authenticate, authorize(['admin', 'hr_manager', 'department
   }
 
   const input = parsed.data;
+  const nextDepartmentId = input.departmentId === undefined ? existing.departmentId : input.departmentId;
+  const nextManagerId = input.managerId === undefined ? existing.managerId : input.managerId;
+  await validateLineManager(nextManagerId, nextDepartmentId);
   const data: Prisma.EmployeeUpdateInput = {};
   if (input.employeeNumber !== undefined) data.employeeNumber = input.employeeNumber;
   if (input.firstName !== undefined) data.firstName = input.firstName;

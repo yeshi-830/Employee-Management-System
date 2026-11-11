@@ -81,6 +81,10 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
     return res.status(err.statusCode).json({ message: err.message });
   }
 
+  if (err instanceof Prisma.PrismaClientInitializationError) {
+    return res.status(503).json({ message: 'Database is unavailable. Check DATABASE_URL and ensure MySQL is running.' });
+  }
+
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
       return res.status(409).json({ message: 'A record with the supplied unique value already exists.' });
