@@ -857,28 +857,65 @@ function DashboardPage({ session }: { session: User }) {
 function EmployeesPage({ session }: { session: User }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const canCreateEmployees = session.role !== 'employee';
+  const canArchiveEmployees = session.role === 'admin' || session.role === 'hr_manager';
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [managerOptions, setManagerOptions] = useState<EmployeeRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [isCreating, setIsCreating] = useState(() => canCreateEmployees && searchParams.get('new') === '1');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRecord | null>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [managerSearch, setManagerSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'name' | 'employeeNumber' | 'jobTitle' | 'status' | 'hireDate'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [showArchived, setShowArchived] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState<EmployeeFormState>(() => createDefaultEmployeeForm());
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    let active = true;
+    const query = new URLSearchParams({ page: '1', pageSize: '100' });
+    if (managerSearch.trim()) query.set('search', managerSearch.trim());
+
+    apiFetch<{ employees: EmployeeRecord[] }>(`/employees?${query}`)
+      .then((response) => {
+        if (active) setManagerOptions(response.employees.filter((employee) => employee.employmentStatus !== 'inactive'));
+      })
+      .catch((requestError: unknown) => {
+        if (active) setLoadError(requestError instanceof Error ? requestError.message : 'Unable to load employee managers.');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [managerSearch]);
 
   useEffect(() => {
     let active = true;
     const loadEmployees = async () => {
+      setLoading(true);
       try {
         const query = new URLSearchParams({ page: String(page), pageSize: '20' });
-        if (search.trim()) query.set('search', search.trim());
+        if (debouncedSearch) query.set('search', debouncedSearch);
         if (statusFilter !== 'all') query.set('status', statusFilter);
         if (departmentFilter !== 'all') query.set('departmentId', departmentFilter);
+        query.set('sortBy', sortBy);
+        query.set('sortOrder', sortOrder);
+        if (showArchived) query.set('archived', 'true');
         const [employeeResponse, departmentResponse] = await Promise.all([
           apiFetch<{ employees: EmployeeRecord[]; pagination: Pagination }>(`/employees?${query}`),
           apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
@@ -906,13 +943,21 @@ function EmployeesPage({ session }: { session: User }) {
     return () => {
       active = false;
     };
-  }, [page, search, statusFilter, departmentFilter]);
+  }, [page, debouncedSearch, statusFilter, departmentFilter, sortBy, sortOrder, showArchived, refreshKey]);
 
   const filteredEmployees = employees;
 
   const departmentLookup = new Map(departments.map((department) => [department.id, department.name]));
 
-  const handleCreateEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
+  const closeForm = () => {
+    setIsCreating(false);
+    setEditingId(null);
+    setFormError('');
+    setForm(createDefaultEmployeeForm());
+    setSearchParams({}, { replace: true });
+  };
+
+  const handleSaveEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
     setFormError('');
@@ -921,24 +966,73 @@ function EmployeesPage({ session }: { session: User }) {
       const payload = {
         ...form,
         managerId: form.managerId || null,
-        phone: form.phone || '+1-555-0100',
-        departmentId: form.departmentId || departments[0]?.id || 'dept-1',
+        phone: form.phone.trim() || null,
+        departmentId: form.departmentId || null,
         ...(form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
       };
 
-      const result = await apiFetch<{ employee: EmployeeRecord }>('/employees', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      await apiFetch<{ employee: EmployeeRecord }>(
+        editingId ? `/employees/${editingId}` : '/employees',
+        {
+          method: editingId ? 'PATCH' : 'POST',
+          body: JSON.stringify(payload),
+        },
+      );
 
-      setEmployees((current) => [result.employee, ...current]);
       setForm(createDefaultEmployeeForm());
       setIsCreating(false);
+      setEditingId(null);
       setSearchParams({}, { replace: true });
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Unable to create employee.');
+      setPage(1);
+      setRefreshKey((current) => current + 1);
+    } catch (requestError) {
+      setFormError(requestError instanceof Error ? requestError.message : 'Unable to save employee.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const editEmployee = (employee: EmployeeRecord) => {
+    setForm({
+      employeeNumber: employee.employeeNumber,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      email: employee.email,
+      phone: employee.phone,
+      departmentId: employee.departmentId,
+      jobTitle: employee.jobTitle,
+      managerId: employee.managerId ?? '',
+      hireDate: employee.hireDate.slice(0, 10),
+      employmentStatus: employee.employmentStatus,
+    });
+    setEditingId(employee.id);
+    setIsCreating(true);
+    setFormError('');
+    setSelectedEmployee(null);
+    setSearchParams({}, { replace: true });
+  };
+
+  const archiveEmployee = async (employee: EmployeeRecord) => {
+    if (!window.confirm(`Archive ${employee.firstName} ${employee.lastName}? Their record will be retained and can be restored by HR.`)) return;
+    setLoadError('');
+    try {
+      await apiFetch<{ employee: EmployeeRecord }>(`/employees/${employee.id}`, { method: 'DELETE' });
+      setRefreshKey((current) => current + 1);
+    } catch (requestError) {
+      setLoadError(requestError instanceof Error ? requestError.message : 'Unable to archive employee.');
+    }
+  };
+
+  const restoreEmployee = async (employee: EmployeeRecord) => {
+    if (!window.confirm(`Restore ${employee.firstName} ${employee.lastName} as an active employee?`)) return;
+    setLoadError('');
+    try {
+      await apiFetch<{ employee: EmployeeRecord }>(`/employees/${employee.id}/restore`, {
+        method: 'POST',
+      });
+      setRefreshKey((current) => current + 1);
+    } catch (requestError) {
+      setLoadError(requestError instanceof Error ? requestError.message : 'Unable to restore employee.');
     }
   };
 
