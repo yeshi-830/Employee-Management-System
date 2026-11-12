@@ -90,6 +90,12 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
   const { page, pageSize } = parsePagination(req);
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const where: Prisma.EmployeeWhereInput = {};
+  const includeArchived = req.query.archived === 'true';
+
+  if (includeArchived && req.user?.role !== 'admin' && req.user?.role !== 'hr_manager') {
+    throw new ApiError('Only HR managers and admins can view archived employees.', 403);
+  }
+  where.isArchived = includeArchived;
 
   if (search) {
     where.OR = [
@@ -111,6 +117,17 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
     where.departmentId = req.query.departmentId;
   }
 
+  const sortBy = z.enum(['name', 'employeeNumber', 'jobTitle', 'status', 'hireDate'])
+    .safeParse(req.query.sortBy ?? 'name');
+  const sortOrder = z.enum(['asc', 'desc']).safeParse(req.query.sortOrder ?? 'asc');
+  if (!sortBy.success || !sortOrder.success) throw new ApiError('Invalid employee sort order.', 400);
+
+  const orderBy: Prisma.EmployeeOrderByWithRelationInput[] = sortBy.data === 'name'
+    ? [{ lastName: sortOrder.data }, { firstName: sortOrder.data }]
+    : sortBy.data === 'status'
+      ? [{ employmentStatus: sortOrder.data }, { lastName: 'asc' }, { firstName: 'asc' }]
+      : [{ [sortBy.data === 'hireDate' ? 'hireDate' : sortBy.data]: sortOrder.data }, { lastName: 'asc' }];
+
   if (req.user?.role === 'employee') {
     where.email = req.user.email;
   } else if (req.user?.role === 'department_manager') {
@@ -121,7 +138,7 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
   const [employees, total] = await prisma.$transaction([
     prisma.employee.findMany({
       where,
-      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -266,6 +283,27 @@ router.delete('/:id', authenticate, authorize(['admin', 'hr_manager']), async (r
   });
 
   return res.json({ employee: toEmployeeRecord(employee), message: 'Employee archived successfully.' });
+});
+
+router.post('/:id/restore', authenticate, authorize(['admin', 'hr_manager']), async (req, res) => {
+  const id = getRouteParam(req, 'id');
+  const employee = await prisma.$transaction(async (transaction) => {
+    const restored = await transaction.employee.update({
+      where: { id },
+      data: { isArchived: false, employmentStatus: 'ACTIVE' },
+    });
+    await transaction.auditEvent.create({
+      data: {
+        actorId: req.user!.id,
+        action: 'EMPLOYEE_RESTORED',
+        entityType: 'employee',
+        entityId: restored.id,
+      },
+    });
+    return restored;
+  });
+
+  return res.json({ employee: toEmployeeRecord(employee), message: 'Employee restored successfully.' });
 });
 
 export default router;

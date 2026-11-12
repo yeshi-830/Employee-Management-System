@@ -75,7 +75,10 @@ type LeaveTypeRecord = {
 type DashboardSummary = {
   totalEmployees: number;
   activeEmployees: number;
+  inactiveEmployees: number;
+  newEmployees: number;
   pendingLeave: number;
+  employeesByStatus: Array<{ status: EmployeeRecord['employmentStatus']; total: number }>;
   employeesByDepartment: Array<{ id: string; name: string; total: number }>;
   recentHires: EmployeeRecord[];
 };
@@ -539,12 +542,17 @@ function DashboardPage({ session }: { session: User }) {
     .slice(0, 4);
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
 
-  const statusCounts = [
-    { status: 'active', label: 'Active', total: activeEmployees.filter((employee) => employee.employmentStatus === 'active').length },
-    { status: 'probation', label: 'Probation', total: activeEmployees.filter((employee) => employee.employmentStatus === 'probation').length },
-    { status: 'on_leave', label: 'On leave', total: activeEmployees.filter((employee) => employee.employmentStatus === 'on_leave').length },
-    { status: 'inactive', label: 'Inactive', total: activeEmployees.filter((employee) => employee.employmentStatus === 'inactive').length },
-  ];
+  const statusLabels: Record<EmployeeRecord['employmentStatus'], string> = {
+    active: 'Active',
+    probation: 'Probation',
+    on_leave: 'On leave',
+    inactive: 'Inactive',
+  };
+  const statusCounts = summary.employeesByStatus.map(({ status, total }) => ({
+    status,
+    label: statusLabels[status],
+    total,
+  }));
   const maxDepartmentSize = Math.max(...(summary?.employeesByDepartment.map((item) => item.total) ?? [0]), 1);
   const activeRate = summary?.totalEmployees
     ? Math.round((summary.activeEmployees / summary.totalEmployees) * 100)
@@ -619,6 +627,22 @@ function DashboardPage({ session }: { session: User }) {
           to="/employees"
         />
         <StatCard
+          label="New this month"
+          value={String(summary.newEmployees)}
+          detail="Hired this calendar month"
+          icon={<UserPlus size={18} />}
+          tone="violet"
+          to="/employees"
+        />
+        <StatCard
+          label="Inactive employees"
+          value={String(summary.inactiveEmployees)}
+          detail="In your current workforce view"
+          icon={<Users size={18} />}
+          tone="blue"
+          to="/employees"
+        />
+        <StatCard
           label="Leave approvals"
           value={String(pendingRequests.length)}
           detail={pendingRequests.length ? 'Waiting for review' : 'Nothing waiting for review'}
@@ -631,7 +655,7 @@ function DashboardPage({ session }: { session: User }) {
           value={String(summary.employeesByDepartment.length)}
           detail="Across the organization"
           icon={<Building2 size={18} />}
-          tone="violet"
+          tone="amber"
           to={session.role !== 'employee' ? '/departments' : undefined}
         />
       </div>
