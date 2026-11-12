@@ -534,7 +534,6 @@ function DashboardPage({ session }: { session: User }) {
     URL.revokeObjectURL(url);
   };
 
-  const activeEmployees = employees.filter((employee) => !employee.isArchived);
   const pendingRequests = leaveRequests.filter((request) => request.status === 'pending');
   const upcomingLeave = leaveRequests
     .filter((request) => request.status === 'approved' && new Date(`${request.endDate.slice(0, 10)}T00:00:00`) >= startOfToday())
@@ -548,10 +547,11 @@ function DashboardPage({ session }: { session: User }) {
     on_leave: 'On leave',
     inactive: 'Inactive',
   };
-  const statusCounts = summary.employeesByStatus.map(({ status, total }) => ({
-    status,
-    label: statusLabels[status],
-    total,
+  const statusTotals = new Map(summary.employeesByStatus.map(({ status, total }) => [status, total]));
+  const statusCounts = Object.keys(statusLabels).map((status) => ({
+    status: status as EmployeeRecord['employmentStatus'],
+    label: statusLabels[status as EmployeeRecord['employmentStatus']],
+    total: statusTotals.get(status as EmployeeRecord['employmentStatus']) ?? 0,
   }));
   const maxDepartmentSize = Math.max(...(summary?.employeesByDepartment.map((item) => item.total) ?? [0]), 1);
   const activeRate = summary?.totalEmployees
@@ -644,8 +644,8 @@ function DashboardPage({ session }: { session: User }) {
         />
         <StatCard
           label="Leave approvals"
-          value={String(pendingRequests.length)}
-          detail={pendingRequests.length ? 'Waiting for review' : 'Nothing waiting for review'}
+          value={String(summary.pendingLeave)}
+          detail={summary.pendingLeave ? 'Waiting for review' : 'Nothing waiting for review'}
           icon={<Clock3 size={18} />}
           tone="amber"
           to="/leave-requests"
