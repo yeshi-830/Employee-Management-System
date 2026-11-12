@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   ArrowUpRight,
@@ -11,8 +11,13 @@ import {
   Download,
   LayoutDashboard,
   LogOut,
+  Menu,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   ShieldCheck,
+  Sun,
   UserPlus,
   Users,
   X,
@@ -255,54 +260,139 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
 }
 
 function AuthenticatedShell({ session, logout }: { session: User; logout: () => Promise<void> }) {
+  const location = useLocation();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    localStorage.getItem('ems_theme') === 'light' ? 'light' : 'dark',
+  );
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/employees', label: 'Employees', icon: Users },
     { to: '/departments', label: 'Departments', icon: Building2 },
     { to: '/leave-requests', label: 'Leave requests', icon: CalendarCheck2 },
   ].filter((item) => item.to !== '/departments' || session.role !== 'employee');
+  const pageTitle = navItems.find((item) => item.to === location.pathname)?.label ?? 'Employee workspace';
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('ems_theme', theme);
+  }, [theme]);
+
+  const handleLogout = async () => {
+    setLogoutError('');
+    try {
+      await logout();
+    } catch (requestError) {
+      setLogoutError(requestError instanceof Error ? requestError.message : 'Unable to sign out.');
+    }
+  };
 
   return (
-    <div className="shell">
+    <div className={`shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}${mobileNavOpen ? ' mobile-nav-open' : ''}`} data-theme={theme}>
       <aside className="sidebar">
-        <div className="brand-row sidebar-brand">
-          <div className="brand-mark">N</div>
-          <div>
-            <div className="eyebrow">CEO MHRU</div>
-            <strong>EMS</strong>
+        <div className="sidebar-heading">
+          <div className="brand-row sidebar-brand">
+            <div className="brand-mark">N</div>
+            <div className="sidebar-brand-copy">
+              <div className="eyebrow">CEO MHRU</div>
+              <strong>EMS</strong>
+            </div>
           </div>
+          <button
+            type="button"
+            className="ghost-button compact sidebar-collapse-button"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact mobile-nav-close"
+            onClick={() => setMobileNavOpen(false)}
+            aria-label="Close navigation"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         <nav className="nav-list">
           {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink
+              key={to}
+              to={to}
+              title={sidebarCollapsed ? label : undefined}
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              onClick={() => setMobileNavOpen(false)}
+            >
               <Icon size={18} />
-              {label}
+              <span className="nav-label">{label}</span>
             </NavLink>
           ))}
         </nav>
 
         <div className="user-panel">
-          <div>
-            <div className="user-name">{session.name}</div>
-            <div className="user-role">{session.role.replace('_', ' ')}</div>
+          <div className="user-profile">
+            <div className="user-avatar" aria-hidden="true">
+              {session.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}
+            </div>
+            <div className="user-profile-copy">
+              <div className="user-name">{session.name}</div>
+              <div className="user-role">{session.role.replaceAll('_', ' ')}</div>
+            </div>
           </div>
-          <button type="button" className="ghost-button" onClick={() => void logout()}>
+          {logoutError ? <div className="error-banner logout-error">{logoutError}</div> : null}
+          <button type="button" className="ghost-button logout-button" onClick={() => void handleLogout()}>
             <LogOut size={16} />
-            Logout
+            <span className="nav-label">Sign out</span>
           </button>
         </div>
       </aside>
 
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          className="nav-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-label="Close navigation menu"
+        />
+      ) : null}
+
       <main className="content-panel">
         <header className="topbar">
-          <div>
-            <div className="eyebrow">Operations</div>
-            <h2>Employee workspace</h2>
+          <div className="topbar-heading">
+            <button
+              type="button"
+              className="ghost-button compact mobile-nav-toggle"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={mobileNavOpen}
+            >
+              <Menu size={19} />
+            </button>
+            <div>
+              <div className="eyebrow">Workspace / {pageTitle}</div>
+              <h2>{pageTitle}</h2>
+            </div>
           </div>
-          <div className="topbar-badge">
-            <Activity size={16} />
-            Protected
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className="ghost-button compact theme-toggle"
+              onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+              <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+            </button>
+            <div className="topbar-badge">
+              <Activity size={16} />
+              Protected
+            </div>
           </div>
         </header>
 
@@ -518,6 +608,7 @@ function DashboardPage({ session }: { session: User }) {
           detail={`${summary.employeesByDepartment.length} departments`}
           icon={<Users size={18} />}
           tone="blue"
+          to="/employees"
         />
         <StatCard
           label="Active employees"
@@ -525,6 +616,7 @@ function DashboardPage({ session }: { session: User }) {
           detail={`${activeRate}% of current workforce`}
           icon={<Activity size={18} />}
           tone="green"
+          to="/employees"
         />
         <StatCard
           label="Leave approvals"
@@ -532,6 +624,7 @@ function DashboardPage({ session }: { session: User }) {
           detail={pendingRequests.length ? 'Waiting for review' : 'Nothing waiting for review'}
           icon={<Clock3 size={18} />}
           tone="amber"
+          to="/leave-requests"
         />
         <StatCard
           label="Departments"
@@ -539,6 +632,7 @@ function DashboardPage({ session }: { session: User }) {
           detail="Across the organization"
           icon={<Building2 size={18} />}
           tone="violet"
+          to={session.role !== 'employee' ? '/departments' : undefined}
         />
       </div>
 
@@ -1434,22 +1528,32 @@ function StatCard({
   detail,
   icon,
   tone,
+  to,
 }: {
   label: string;
   value: string;
   detail: string;
   icon: React.ReactNode;
   tone: 'blue' | 'green' | 'amber' | 'violet';
+  to?: string;
 }) {
-  return (
-    <div className={`stat-card dashboard-stat ${tone}`}>
+  const content = (
+    <>
       <div className="stat-card-top">
         <div className="eyebrow">{label}</div>
         <span className="stat-icon">{icon}</span>
       </div>
       <strong className="stat-value">{value}</strong>
       <span className="stat-detail">{detail}</span>
-    </div>
+    </>
+  );
+
+  return to ? (
+    <NavLink to={to} className={`stat-card dashboard-stat ${tone} stat-card-link`} aria-label={`${label}: ${value}. ${detail}`}>
+      {content}
+    </NavLink>
+  ) : (
+    <div className={`stat-card dashboard-stat ${tone}`}>{content}</div>
   );
 }
 
