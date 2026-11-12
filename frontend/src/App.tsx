@@ -926,12 +926,6 @@ function EmployeesPage({ session }: { session: User }) {
         setPagination(employeeResponse.pagination);
         setDepartments(departmentResponse.departments);
         setLoadError('');
-        const defaultDepartmentId = departmentResponse.departments[0]?.id;
-        if (defaultDepartmentId) {
-          setForm((current) => departmentResponse.departments.some((department) => department.id === current.departmentId)
-            ? current
-            : { ...current, departmentId: defaultDepartmentId });
-        }
       } catch (requestError) {
         if (active) setLoadError(requestError instanceof Error ? requestError.message : 'Unable to load employees.');
       } finally {
@@ -1928,13 +1922,18 @@ function createDefaultEmployeeForm(): EmployeeFormState {
     firstName: '',
     lastName: '',
     email: '',
-    phone: '+1-555-0100',
-    departmentId: 'dept-1',
-    jobTitle: 'Operations Specialist',
+    phone: '',
+    departmentId: '',
+    jobTitle: '',
     managerId: '',
-    hireDate: new Date().toISOString().slice(0, 10),
+    hireDate: toDateInputValue(new Date()),
     employmentStatus: 'active',
   };
+}
+
+function toDateInputValue(value: Date) {
+  const localDate = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
 }
 
 function formatDate(value: string) {
