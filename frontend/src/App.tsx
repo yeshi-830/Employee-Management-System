@@ -75,10 +75,7 @@ type LeaveTypeRecord = {
 type DashboardSummary = {
   totalEmployees: number;
   activeEmployees: number;
-  inactiveEmployees: number;
-  newEmployees: number;
   pendingLeave: number;
-  employeesByStatus: Array<{ status: EmployeeRecord['employmentStatus']; total: number }>;
   employeesByDepartment: Array<{ id: string; name: string; total: number }>;
   recentHires: EmployeeRecord[];
 };
@@ -534,6 +531,7 @@ function DashboardPage({ session }: { session: User }) {
     URL.revokeObjectURL(url);
   };
 
+  const activeEmployees = employees.filter((employee) => !employee.isArchived);
   const pendingRequests = leaveRequests.filter((request) => request.status === 'pending');
   const upcomingLeave = leaveRequests
     .filter((request) => request.status === 'approved' && new Date(`${request.endDate.slice(0, 10)}T00:00:00`) >= startOfToday())
@@ -541,18 +539,12 @@ function DashboardPage({ session }: { session: User }) {
     .slice(0, 4);
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
 
-  const statusLabels: Record<EmployeeRecord['employmentStatus'], string> = {
-    active: 'Active',
-    probation: 'Probation',
-    on_leave: 'On leave',
-    inactive: 'Inactive',
-  };
-  const statusTotals = new Map(summary.employeesByStatus.map(({ status, total }) => [status, total]));
-  const statusCounts = Object.keys(statusLabels).map((status) => ({
-    status: status as EmployeeRecord['employmentStatus'],
-    label: statusLabels[status as EmployeeRecord['employmentStatus']],
-    total: statusTotals.get(status as EmployeeRecord['employmentStatus']) ?? 0,
-  }));
+  const statusCounts = [
+    { status: 'active', label: 'Active', total: activeEmployees.filter((employee) => employee.employmentStatus === 'active').length },
+    { status: 'probation', label: 'Probation', total: activeEmployees.filter((employee) => employee.employmentStatus === 'probation').length },
+    { status: 'on_leave', label: 'On leave', total: activeEmployees.filter((employee) => employee.employmentStatus === 'on_leave').length },
+    { status: 'inactive', label: 'Inactive', total: activeEmployees.filter((employee) => employee.employmentStatus === 'inactive').length },
+  ];
   const maxDepartmentSize = Math.max(...(summary?.employeesByDepartment.map((item) => item.total) ?? [0]), 1);
   const activeRate = summary?.totalEmployees
     ? Math.round((summary.activeEmployees / summary.totalEmployees) * 100)
@@ -616,7 +608,6 @@ function DashboardPage({ session }: { session: User }) {
           detail={`${summary.employeesByDepartment.length} departments`}
           icon={<Users size={18} />}
           tone="blue"
-          to="/employees"
         />
         <StatCard
           label="Active employees"
@@ -624,39 +615,20 @@ function DashboardPage({ session }: { session: User }) {
           detail={`${activeRate}% of current workforce`}
           icon={<Activity size={18} />}
           tone="green"
-          to="/employees"
-        />
-        <StatCard
-          label="New this month"
-          value={String(summary.newEmployees)}
-          detail="Hired this calendar month"
-          icon={<UserPlus size={18} />}
-          tone="violet"
-          to="/employees"
-        />
-        <StatCard
-          label="Inactive employees"
-          value={String(summary.inactiveEmployees)}
-          detail="In your current workforce view"
-          icon={<Users size={18} />}
-          tone="blue"
-          to="/employees"
         />
         <StatCard
           label="Leave approvals"
-          value={String(summary.pendingLeave)}
-          detail={summary.pendingLeave ? 'Waiting for review' : 'Nothing waiting for review'}
+          value={String(pendingRequests.length)}
+          detail={pendingRequests.length ? 'Waiting for review' : 'Nothing waiting for review'}
           icon={<Clock3 size={18} />}
           tone="amber"
-          to="/leave-requests"
         />
         <StatCard
           label="Departments"
           value={String(summary.employeesByDepartment.length)}
           detail="Across the organization"
           icon={<Building2 size={18} />}
-          tone="amber"
-          to={session.role !== 'employee' ? '/departments' : undefined}
+          tone="violet"
         />
       </div>
 
@@ -857,65 +829,28 @@ function DashboardPage({ session }: { session: User }) {
 function EmployeesPage({ session }: { session: User }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const canCreateEmployees = session.role !== 'employee';
-  const canArchiveEmployees = session.role === 'admin' || session.role === 'hr_manager';
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
-  const [managerOptions, setManagerOptions] = useState<EmployeeRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [isCreating, setIsCreating] = useState(() => canCreateEmployees && searchParams.get('new') === '1');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRecord | null>(null);
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [managerSearch, setManagerSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | EmployeeRecord['employmentStatus']>('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
-  const [sortBy, setSortBy] = useState<'name' | 'employeeNumber' | 'jobTitle' | 'status' | 'hireDate'>('name');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [showArchived, setShowArchived] = useState(false);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState<EmployeeFormState>(() => createDefaultEmployeeForm());
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
-    return () => window.clearTimeout(timeout);
-  }, [search]);
-
-  useEffect(() => {
-    let active = true;
-    const query = new URLSearchParams({ page: '1', pageSize: '100' });
-    if (managerSearch.trim()) query.set('search', managerSearch.trim());
-
-    apiFetch<{ employees: EmployeeRecord[] }>(`/employees?${query}`)
-      .then((response) => {
-        if (active) setManagerOptions(response.employees.filter((employee) => employee.employmentStatus !== 'inactive'));
-      })
-      .catch((requestError: unknown) => {
-        if (active) setLoadError(requestError instanceof Error ? requestError.message : 'Unable to load employee managers.');
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [managerSearch]);
 
   useEffect(() => {
     let active = true;
     const loadEmployees = async () => {
-      setLoading(true);
       try {
         const query = new URLSearchParams({ page: String(page), pageSize: '20' });
-        if (debouncedSearch) query.set('search', debouncedSearch);
+        if (search.trim()) query.set('search', search.trim());
         if (statusFilter !== 'all') query.set('status', statusFilter);
         if (departmentFilter !== 'all') query.set('departmentId', departmentFilter);
-        query.set('sortBy', sortBy);
-        query.set('sortOrder', sortOrder);
-        if (showArchived) query.set('archived', 'true');
         const [employeeResponse, departmentResponse] = await Promise.all([
           apiFetch<{ employees: EmployeeRecord[]; pagination: Pagination }>(`/employees?${query}`),
           apiFetch<{ departments: DepartmentRecord[] }>('/departments'),
@@ -926,6 +861,12 @@ function EmployeesPage({ session }: { session: User }) {
         setPagination(employeeResponse.pagination);
         setDepartments(departmentResponse.departments);
         setLoadError('');
+        const defaultDepartmentId = departmentResponse.departments[0]?.id;
+        if (defaultDepartmentId) {
+          setForm((current) => departmentResponse.departments.some((department) => department.id === current.departmentId)
+            ? current
+            : { ...current, departmentId: defaultDepartmentId });
+        }
       } catch (requestError) {
         if (active) setLoadError(requestError instanceof Error ? requestError.message : 'Unable to load employees.');
       } finally {
@@ -937,21 +878,13 @@ function EmployeesPage({ session }: { session: User }) {
     return () => {
       active = false;
     };
-  }, [page, debouncedSearch, statusFilter, departmentFilter, sortBy, sortOrder, showArchived, refreshKey]);
+  }, [page, search, statusFilter, departmentFilter]);
 
   const filteredEmployees = employees;
 
   const departmentLookup = new Map(departments.map((department) => [department.id, department.name]));
 
-  const closeForm = () => {
-    setIsCreating(false);
-    setEditingId(null);
-    setFormError('');
-    setForm(createDefaultEmployeeForm());
-    setSearchParams({}, { replace: true });
-  };
-
-  const handleSaveEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateEmployee = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
     setFormError('');
@@ -960,73 +893,24 @@ function EmployeesPage({ session }: { session: User }) {
       const payload = {
         ...form,
         managerId: form.managerId || null,
-        phone: form.phone.trim() || null,
-        departmentId: form.departmentId || null,
+        phone: form.phone || '+1-555-0100',
+        departmentId: form.departmentId || departments[0]?.id || 'dept-1',
         ...(form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
       };
 
-      await apiFetch<{ employee: EmployeeRecord }>(
-        editingId ? `/employees/${editingId}` : '/employees',
-        {
-          method: editingId ? 'PATCH' : 'POST',
-          body: JSON.stringify(payload),
-        },
-      );
+      const result = await apiFetch<{ employee: EmployeeRecord }>('/employees', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
+      setEmployees((current) => [result.employee, ...current]);
       setForm(createDefaultEmployeeForm());
       setIsCreating(false);
-      setEditingId(null);
       setSearchParams({}, { replace: true });
-      setPage(1);
-      setRefreshKey((current) => current + 1);
-    } catch (requestError) {
-      setFormError(requestError instanceof Error ? requestError.message : 'Unable to save employee.');
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to create employee.');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const editEmployee = (employee: EmployeeRecord) => {
-    setForm({
-      employeeNumber: employee.employeeNumber,
-      firstName: employee.firstName,
-      lastName: employee.lastName,
-      email: employee.email,
-      phone: employee.phone,
-      departmentId: employee.departmentId,
-      jobTitle: employee.jobTitle,
-      managerId: employee.managerId ?? '',
-      hireDate: employee.hireDate.slice(0, 10),
-      employmentStatus: employee.employmentStatus,
-    });
-    setEditingId(employee.id);
-    setIsCreating(true);
-    setFormError('');
-    setSelectedEmployee(null);
-    setSearchParams({}, { replace: true });
-  };
-
-  const archiveEmployee = async (employee: EmployeeRecord) => {
-    if (!window.confirm(`Archive ${employee.firstName} ${employee.lastName}? Their record will be retained and can be restored by HR.`)) return;
-    setLoadError('');
-    try {
-      await apiFetch<{ employee: EmployeeRecord }>(`/employees/${employee.id}`, { method: 'DELETE' });
-      setRefreshKey((current) => current + 1);
-    } catch (requestError) {
-      setLoadError(requestError instanceof Error ? requestError.message : 'Unable to archive employee.');
-    }
-  };
-
-  const restoreEmployee = async (employee: EmployeeRecord) => {
-    if (!window.confirm(`Restore ${employee.firstName} ${employee.lastName} as an active employee?`)) return;
-    setLoadError('');
-    try {
-      await apiFetch<{ employee: EmployeeRecord }>(`/employees/${employee.id}/restore`, {
-        method: 'POST',
-      });
-      setRefreshKey((current) => current + 1);
-    } catch (requestError) {
-      setLoadError(requestError instanceof Error ? requestError.message : 'Unable to restore employee.');
     }
   };
 
@@ -1043,45 +927,6 @@ function EmployeesPage({ session }: { session: User }) {
             placeholder="Search employees"
             className="input-field"
           />
-          <select
-            value={sortBy}
-            onChange={(event) => {
-              setSortBy(event.target.value as typeof sortBy);
-              setPage(1);
-            }}
-            className="input-field"
-            aria-label="Sort employees by"
-          >
-            <option value="name">Sort: name</option>
-            <option value="employeeNumber">Sort: employee ID</option>
-            <option value="jobTitle">Sort: job title</option>
-            <option value="status">Sort: status</option>
-            <option value="hireDate">Sort: hire date</option>
-          </select>
-          <select
-            value={sortOrder}
-            onChange={(event) => {
-              setSortOrder(event.target.value as typeof sortOrder);
-              setPage(1);
-            }}
-            className="input-field"
-            aria-label="Sort direction"
-          >
-            <option value="asc">Ascending</option>
-            <option value="desc">Descending</option>
-          </select>
-          {canArchiveEmployees ? (
-            <button
-              type="button"
-              className="ghost-button compact"
-              onClick={() => {
-                setShowArchived((current) => !current);
-                setPage(1);
-              }}
-            >
-              {showArchived ? 'Show active employees' : 'View archived'}
-            </button>
-          ) : null}
           <select
             value={statusFilter}
             onChange={(event) => {
@@ -1116,15 +961,9 @@ function EmployeesPage({ session }: { session: User }) {
               type="button"
               className="primary-button compact"
               onClick={() => {
-                if (isCreating) {
-                  closeForm();
-                } else {
-                  setForm(createDefaultEmployeeForm());
-                  setEditingId(null);
-                  setFormError('');
-                  setIsCreating(true);
-                  setSearchParams({ new: '1' }, { replace: true });
-                }
+                const next = !isCreating;
+                setIsCreating(next);
+                setSearchParams(next ? { new: '1' } : {}, { replace: true });
               }}
             >
               {isCreating ? 'Close form' : 'Add employee'}
@@ -1133,14 +972,11 @@ function EmployeesPage({ session }: { session: User }) {
         </div>
 
         {isCreating ? (
-          <form onSubmit={handleSaveEmployee} className="form-panel">
-            <h4>{editingId ? 'Edit employee record' : 'Add employee'}</h4>
+          <form onSubmit={handleCreateEmployee} className="form-panel">
             <div className="form-grid">
               <label>
                 First name
                 <input
-                  required
-                  maxLength={80}
                   value={form.firstName}
                   onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
                 />
@@ -1148,8 +984,6 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Last name
                 <input
-                  required
-                  maxLength={80}
                   value={form.lastName}
                   onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
                 />
@@ -1158,7 +992,6 @@ function EmployeesPage({ session }: { session: User }) {
                 Employee #
                 <input
                   placeholder="Generated when left blank"
-                  maxLength={32}
                   value={form.employeeNumber}
                   onChange={(event) => setForm((current) => ({ ...current, employeeNumber: event.target.value }))}
                 />
@@ -1167,8 +1000,6 @@ function EmployeesPage({ session }: { session: User }) {
                 Email
                 <input
                   type="email"
-                  required
-                  maxLength={254}
                   value={form.email}
                   onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
                 />
@@ -1176,7 +1007,6 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Phone
                 <input
-                  maxLength={40}
                   value={form.phone}
                   onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
                 />
@@ -1184,8 +1014,6 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Job title
                 <input
-                  required
-                  maxLength={120}
                   value={form.jobTitle}
                   onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))}
                 />
@@ -1194,13 +1022,8 @@ function EmployeesPage({ session }: { session: User }) {
                 Department
                 <select
                   value={form.departmentId}
-                  onChange={(event) => setForm((current) => ({
-                    ...current,
-                    departmentId: event.target.value,
-                    managerId: '',
-                  }))}
+                  onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}
                 >
-                  <option value="">No department</option>
                   {departments.map((department) => (
                     <option key={department.id} value={department.id}>
                       {department.name}
@@ -1209,35 +1032,9 @@ function EmployeesPage({ session }: { session: User }) {
                 </select>
               </label>
               <label>
-                Line manager
-                <input
-                  value={managerSearch}
-                  onChange={(event) => setManagerSearch(event.target.value)}
-                  placeholder="Search managers"
-                  aria-label="Search line managers"
-                />
-                <select
-                  value={form.managerId}
-                  onChange={(event) => setForm((current) => ({ ...current, managerId: event.target.value }))}
-                >
-                  <option value="">No line manager</option>
-                  {form.managerId && !managerOptions.some((manager) => manager.id === form.managerId) ? (
-                    <option value={form.managerId}>Current manager</option>
-                  ) : null}
-                  {managerOptions
-                    .filter((manager) => manager.id !== editingId && manager.departmentId === form.departmentId)
-                    .map((manager) => (
-                      <option key={manager.id} value={manager.id}>
-                        {manager.firstName} {manager.lastName} · {manager.jobTitle}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label>
                 Hire date
                 <input
                   type="date"
-                  required
                   value={form.hireDate}
                   onChange={(event) => setForm((current) => ({ ...current, hireDate: event.target.value }))}
                 />
@@ -1262,12 +1059,15 @@ function EmployeesPage({ session }: { session: User }) {
               <button
                 type="button"
                 className="ghost-button compact"
-                onClick={closeForm}
+                onClick={() => {
+                  setIsCreating(false);
+                  setSearchParams({}, { replace: true });
+                }}
               >
                 Cancel
               </button>
               <button type="submit" className="primary-button compact" disabled={submitting}>
-                {submitting ? 'Saving...' : editingId ? 'Save changes' : 'Save employee'}
+                {submitting ? 'Saving...' : 'Save employee'}
               </button>
             </div>
           </form>
@@ -1277,115 +1077,34 @@ function EmployeesPage({ session }: { session: User }) {
         {loading ? (
           <div className="muted-copy">Loading employee directory...</div>
         ) : filteredEmployees.length ? (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Employee #</th>
-                  <th>Department</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Employee #</th>
+                <th>Department</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredEmployees.map((employee) => (
+                <tr key={employee.id}>
+                  <td>
+                    {employee.firstName} {employee.lastName}
+                    <div className="muted-copy">{employee.email}</div>
+                  </td>
+                  <td>{employee.employeeNumber}</td>
+                  <td>{departmentLookup.get(employee.departmentId) ?? 'Unassigned'}</td>
+                  <td>
+                    <span className={`status-pill ${employee.employmentStatus}`}>{employee.employmentStatus.replace('_', ' ')}</span>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredEmployees.map((employee) => (
-                  <tr key={employee.id}>
-                    <td>
-                      <strong>{employee.firstName} {employee.lastName}</strong>
-                      <div className="muted-copy">{employee.email}</div>
-                    </td>
-                    <td>{employee.employeeNumber}</td>
-                    <td>{departmentLookup.get(employee.departmentId) ?? 'Unassigned'}</td>
-                    <td>
-                      <span className={`status-pill ${employee.employmentStatus}`}>{employee.employmentStatus.replace('_', ' ')}</span>
-                      {employee.isArchived ? <span className="status-pill archived">Archived</span> : null}
-                    </td>
-                    <td>
-                      <div className="employee-actions">
-                        <button
-                          type="button"
-                          className="ghost-button compact"
-                          onClick={() => setSelectedEmployee(employee)}
-                        >
-                          View
-                        </button>
-                        {!showArchived && canCreateEmployees ? (
-                          <button
-                            type="button"
-                            className="ghost-button compact"
-                            onClick={() => editEmployee(employee)}
-                          >
-                            Edit
-                          </button>
-                        ) : null}
-                        {canArchiveEmployees ? (
-                          showArchived ? (
-                            <button
-                              type="button"
-                              className="ghost-button compact success"
-                              onClick={() => void restoreEmployee(employee)}
-                            >
-                              Restore
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="ghost-button compact danger"
-                              onClick={() => void archiveEmployee(employee)}
-                            >
-                              Archive
-                            </button>
-                          )
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         ) : (
-          <div className="empty-state">
-            {showArchived ? 'No archived employees were found.' : 'No employees match the current filters.'}
-          </div>
+          <div className="empty-state">No employees match the current filters.</div>
         )}
-        {selectedEmployee ? (
-          <div className="dialog-backdrop" onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSelectedEmployee(null);
-          }}>
-            <section
-              className="employee-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="employee-dialog-title"
-            >
-              <div className="row-between">
-                <div>
-                  <div className="eyebrow">Employee profile</div>
-                  <h3 id="employee-dialog-title">{selectedEmployee.firstName} {selectedEmployee.lastName}</h3>
-                </div>
-                <button
-                  type="button"
-                  className="ghost-button compact"
-                  onClick={() => setSelectedEmployee(null)}
-                  aria-label="Close employee details"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <dl className="employee-details">
-                <div><dt>Employee number</dt><dd>{selectedEmployee.employeeNumber}</dd></div>
-                <div><dt>Work email</dt><dd>{selectedEmployee.email}</dd></div>
-                <div><dt>Phone</dt><dd>{selectedEmployee.phone || 'Not provided'}</dd></div>
-                <div><dt>Job title</dt><dd>{selectedEmployee.jobTitle}</dd></div>
-                <div><dt>Department</dt><dd>{departmentLookup.get(selectedEmployee.departmentId) ?? 'Unassigned'}</dd></div>
-                <div><dt>Hire date</dt><dd>{formatDate(selectedEmployee.hireDate)}</dd></div>
-                <div><dt>Status</dt><dd>{selectedEmployee.employmentStatus.replace('_', ' ')}</dd></div>
-              </dl>
-            </section>
-          </div>
-        ) : null}
         {pagination.totalPages > 1 ? (
           <div className="button-row right-align">
             <span className="muted-copy">
@@ -1574,12 +1293,8 @@ function LeavePage({ session }: { session: User }) {
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingEmployees, setLoadingEmployees] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [updatingLeaveId, setUpdatingLeaveId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [employeeSearch, setEmployeeSearch] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
   const [statusFilter, setStatusFilter] = useState<'all' | LeaveRequestRecord['status']>('all');
@@ -1598,18 +1313,17 @@ function LeavePage({ session }: { session: User }) {
         const query = new URLSearchParams({ page: String(page), pageSize: '20' });
         if (search.trim()) query.set('search', search.trim());
         if (statusFilter !== 'all') query.set('status', statusFilter);
-        const leaveResponse = await apiFetch<{ leaveRequests: LeaveRequestRecord[]; leaveTypes: LeaveTypeRecord[]; pagination: Pagination }>(`/leave-requests?${query}`);
+        const [leaveResponse, employeeResponse] = await Promise.all([
+          apiFetch<{ leaveRequests: LeaveRequestRecord[]; leaveTypes: LeaveTypeRecord[]; pagination: Pagination }>(`/leave-requests?${query}`),
+          apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
+        ]);
 
         if (!active) return;
         setLeaveRequests(leaveResponse.leaveRequests);
         setLeaveTypes(leaveResponse.leaveTypes);
         setPagination(leaveResponse.pagination);
-        setForm((current) => ({
-          ...current,
-          leaveType: current.leaveType && leaveResponse.leaveTypes.some((type) => type.name === current.leaveType)
-            ? current.leaveType
-            : leaveResponse.leaveTypes[0]?.name ?? '',
-        }));
+        setEmployees(employeeResponse.employees);
+        setForm((current) => ({ ...current, leaveType: leaveResponse.leaveTypes[0]?.name ?? '' }));
       } catch (requestError) {
         if (active) setError(requestError instanceof Error ? requestError.message : 'Unable to load leave requests.');
       } finally {
@@ -1623,37 +1337,12 @@ function LeavePage({ session }: { session: User }) {
     };
   }, [page, search, statusFilter]);
 
-  useEffect(() => {
-    let active = true;
-    const loadEmployees = async () => {
-      setLoadingEmployees(true);
-      try {
-        const query = new URLSearchParams({ page: '1', pageSize: '100' });
-        if (employeeSearch.trim()) query.set('search', employeeSearch.trim());
-        const response = await apiFetch<{ employees: EmployeeRecord[] }>(`/employees?${query}`);
-        if (!active) return;
-        setEmployees(response.employees);
-        if (session.role === 'employee') setEmployeeId(response.employees[0]?.id ?? '');
-      } catch (requestError) {
-        if (active) setError(requestError instanceof Error ? requestError.message : 'Unable to load employee options.');
-      } finally {
-        if (active) setLoadingEmployees(false);
-      }
-    };
-
-    void loadEmployees();
-    return () => {
-      active = false;
-    };
-  }, [employeeSearch, session.role]);
-
   const employeeLookup = new Map(employees.map((employee) => [employee.id, `${employee.firstName} ${employee.lastName}`]));
 
   const filteredLeaveRequests = leaveRequests;
 
   const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
     setError('');
-    setUpdatingLeaveId(id);
     try {
       const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>(`/leave-requests/${id}`, {
         method: 'PATCH',
@@ -1663,14 +1352,11 @@ function LeavePage({ session }: { session: User }) {
       setLeaveRequests((current) => current.map((item) => (item.id === id ? result.leaveRequest : item)));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to update this leave request.');
-    } finally {
-      setUpdatingLeaveId(null);
     }
   };
 
   const canReviewLeave = session.role === 'admin' || session.role === 'hr_manager' || session.role === 'department_manager';
-  const canApplyLeave = true;
-  const requiresEmployeeSelection = session.role !== 'employee';
+  const canApplyLeave = session.role === 'employee';
 
   const submitLeaveRequest = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1681,7 +1367,6 @@ function LeavePage({ session }: { session: User }) {
       const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>('/leave-requests', {
         method: 'POST',
         body: JSON.stringify({
-          ...(requiresEmployeeSelection ? { employeeId } : {}),
           leaveType: form.leaveType,
           startDate: form.startDate,
           endDate: form.endDate,
@@ -1705,35 +1390,6 @@ function LeavePage({ session }: { session: User }) {
           <form onSubmit={submitLeaveRequest} className="form-panel">
             <h4>Request time off</h4>
             <div className="form-grid">
-              {requiresEmployeeSelection ? (
-                <>
-                  <label>
-                    Find employee
-                    <input
-                      type="search"
-                      value={employeeSearch}
-                      onChange={(event) => setEmployeeSearch(event.target.value)}
-                      placeholder="Search by name, email or employee number"
-                    />
-                  </label>
-                  <label>
-                    Employee
-                    <select
-                      required
-                      value={employeeId}
-                      onChange={(event) => setEmployeeId(event.target.value)}
-                      disabled={loadingEmployees}
-                    >
-                      <option value="">Select an employee</option>
-                      {employees.map((employee) => (
-                        <option key={employee.id} value={employee.id}>
-                          {employee.firstName} {employee.lastName} · {employee.employeeNumber}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : null}
               <label>
                 Leave type
                 <select
@@ -1775,19 +1431,11 @@ function LeavePage({ session }: { session: User }) {
               </label>
             </div>
             <div className="button-row right-align">
-              <button
-                type="submit"
-                className="primary-button compact"
-                disabled={submitting || loading || loadingEmployees || !leaveTypes.length || (requiresEmployeeSelection && !employeeId)}
-              >
+              <button type="submit" className="primary-button compact" disabled={submitting || loading || !employees.length || !leaveTypes.length}>
                 {submitting ? 'Submitting...' : 'Submit request'}
               </button>
             </div>
-            {!loadingEmployees && !employees.length ? (
-              <div className="muted-copy">
-                {requiresEmployeeSelection ? 'No employees match this search.' : 'Your account is not linked to an employee profile.'}
-              </div>
-            ) : null}
+            {!loading && !employees.length ? <div className="muted-copy">Your account is not linked to an employee profile.</div> : null}
           </form>
         ) : null}
         <div className="toolbar-row single-line">
@@ -1820,7 +1468,7 @@ function LeavePage({ session }: { session: User }) {
             {filteredLeaveRequests.map((item) => (
               <div key={item.id} className="mini-card">
                 <div className="row-between">
-                  <strong>{item.employeeName ?? employeeLookup.get(item.employeeId) ?? 'Unknown employee'}</strong>
+                  <strong>{employeeLookup.get(item.employeeId) ?? item.employeeName ?? 'Unknown employee'}</strong>
                   <span className={`status-pill ${item.status}`}>{item.status}</span>
                 </div>
                 <div className="row-between muted-copy">
@@ -1832,10 +1480,10 @@ function LeavePage({ session }: { session: User }) {
                 <small>{item.reason}</small>
                 {canReviewLeave && item.status === 'pending' ? (
                   <div className="button-row">
-                    <button type="button" className="ghost-button compact success" onClick={() => void updateLeaveStatus(item.id, 'approved')} disabled={updatingLeaveId === item.id}>
+                    <button type="button" className="ghost-button compact success" onClick={() => void updateLeaveStatus(item.id, 'approved')}>
                       Approve
                     </button>
-                    <button type="button" className="ghost-button compact danger" onClick={() => void updateLeaveStatus(item.id, 'rejected')} disabled={updatingLeaveId === item.id}>
+                    <button type="button" className="ghost-button compact danger" onClick={() => void updateLeaveStatus(item.id, 'rejected')}>
                       Reject
                     </button>
                   </div>
@@ -1876,32 +1524,22 @@ function StatCard({
   detail,
   icon,
   tone,
-  to,
 }: {
   label: string;
   value: string;
   detail: string;
   icon: React.ReactNode;
   tone: 'blue' | 'green' | 'amber' | 'violet';
-  to?: string;
 }) {
-  const content = (
-    <>
+  return (
+    <div className={`stat-card dashboard-stat ${tone}`}>
       <div className="stat-card-top">
         <div className="eyebrow">{label}</div>
         <span className="stat-icon">{icon}</span>
       </div>
       <strong className="stat-value">{value}</strong>
       <span className="stat-detail">{detail}</span>
-    </>
-  );
-
-  return to ? (
-    <NavLink to={to} className={`stat-card dashboard-stat ${tone} stat-card-link`} aria-label={`${label}: ${value}. ${detail}`}>
-      {content}
-    </NavLink>
-  ) : (
-    <div className={`stat-card dashboard-stat ${tone}`}>{content}</div>
+    </div>
   );
 }
 
@@ -1922,18 +1560,13 @@ function createDefaultEmployeeForm(): EmployeeFormState {
     firstName: '',
     lastName: '',
     email: '',
-    phone: '',
-    departmentId: '',
-    jobTitle: '',
+    phone: '+1-555-0100',
+    departmentId: 'dept-1',
+    jobTitle: 'Operations Specialist',
     managerId: '',
-    hireDate: toDateInputValue(new Date()),
+    hireDate: new Date().toISOString().slice(0, 10),
     employmentStatus: 'active',
   };
-}
-
-function toDateInputValue(value: Date) {
-  const localDate = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
-  return localDate.toISOString().slice(0, 10);
 }
 
 function formatDate(value: string) {
