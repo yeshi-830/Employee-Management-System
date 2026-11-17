@@ -75,6 +75,7 @@ type DashboardSummary = {
   totalEmployees: number;
   activeEmployees: number;
   pendingLeave: number;
+  newEmployees: number;
   employeesByStatus: Array<{ status: EmployeeRecord['employmentStatus']; total: number }>;
   employeesByDepartment: Array<{ id: string; name: string; total: number }>;
   recentHires: EmployeeRecord[];
@@ -101,8 +102,25 @@ type EmployeeFormState = {
 };
 
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000/api' : '/api');
+const BRANDING = {
+  organizationName: import.meta.env.VITE_ORGANIZATION_NAME?.trim() || 'Your Organization',
+  productName: import.meta.env.VITE_PRODUCT_NAME?.trim() || 'People Operations',
+  productShortName: import.meta.env.VITE_PRODUCT_SHORT_NAME?.trim().slice(0, 3).toUpperCase() || 'PO',
+  workforceLabel: import.meta.env.VITE_WORKFORCE_LABEL?.trim() || 'People',
+  primaryColor: getBrandColor(import.meta.env.VITE_BRAND_PRIMARY_COLOR, '#60a5fa'),
+  accentColor: getBrandColor(import.meta.env.VITE_BRAND_ACCENT_COLOR, '#2dd4bf'),
+};
+const REPORT_FILENAME_PREFIX = BRANDING.productName
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '') || 'people-operations';
 
 type PagedCollection<T, Key extends string> = { pagination: Pagination } & Record<Key, T[]>;
+
+function getBrandColor(value: string | undefined, fallback: string) {
+  const color = value?.trim();
+  return color && /^#[\da-f]{6}$/i.test(color) ? color : fallback;
+}
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = (options.method ?? 'GET').toUpperCase();
@@ -152,6 +170,12 @@ async function fetchAllPages<T, Key extends 'employees' | 'leaveRequests'>(
 function App() {
   const [session, setSession] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
+  useEffect(() => {
+    document.title = `${BRANDING.organizationName} | ${BRANDING.productName}`;
+    document.documentElement.style.setProperty('--brand-primary', BRANDING.primaryColor);
+    document.documentElement.style.setProperty('--brand-accent', BRANDING.accentColor);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -230,10 +254,10 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
     <div className="auth-layout">
       <div className="auth-card">
         <div className="brand-row">
-          <div className="brand-mark">N</div>
+          <div className="brand-mark" aria-hidden="true">{BRANDING.productShortName}</div>
           <div>
-            <div className="eyebrow">CEO MHRU</div>
-            <h1>Employee Management System</h1>
+            <div className="eyebrow">{BRANDING.organizationName}</div>
+            <h1>{BRANDING.productName}</h1>
           </div>
         </div>
 
@@ -306,10 +330,10 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
       <aside className="sidebar">
         <div className="sidebar-heading">
           <div className="brand-row sidebar-brand">
-            <div className="brand-mark">N</div>
+            <div className="brand-mark" aria-hidden="true">{BRANDING.productShortName}</div>
             <div className="sidebar-brand-copy">
-              <div className="eyebrow">CEO MHRU</div>
-              <strong>EMS</strong>
+              <div className="eyebrow">{BRANDING.organizationName}</div>
+              <strong>{BRANDING.productShortName}</strong>
             </div>
           </div>
           <button
@@ -428,6 +452,7 @@ function DashboardPage({ session }: { session: User }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [exportNotice, setExportNotice] = useState('');
   const [updatingLeaveId, setUpdatingLeaveId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -471,6 +496,7 @@ function DashboardPage({ session }: { session: User }) {
   const updateLeaveStatus = async (id: string, status: LeaveRequestRecord['status']) => {
     setUpdatingLeaveId(id);
     setActionError('');
+    setExportNotice('');
 
     try {
       const result = await apiFetch<{ leaveRequest: LeaveRequestRecord }>(`/leave-requests/${id}`, {
@@ -488,6 +514,7 @@ function DashboardPage({ session }: { session: User }) {
   const exportReport = async () => {
     setExporting(true);
     setActionError('');
+    setExportNotice('');
 
     try {
       const [employees, allLeaveRequests] = await Promise.all([
@@ -496,12 +523,18 @@ function DashboardPage({ session }: { session: User }) {
       ]);
       const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
       const departmentById = new Map(summary?.employeesByDepartment.map((department) => [department.id, department.name]) ?? []);
+      const generatedAt = new Date().toISOString();
+      const viewerRole = session.role.replaceAll('_', ' ');
       const rows = [
-        ['Record type', 'Employee number', 'Employee name', 'Email', 'Job title', 'Department', 'Employment status', 'Leave type', 'Start date', 'End date', 'Leave status'],
+        ['record_type', 'organization_name', 'product_name', 'generated_at_utc', 'viewer_role', 'employee_number', 'employee_name', 'email', 'job_title', 'department', 'employment_status', 'leave_type', 'start_date', 'end_date', 'leave_status'],
         ...employees
           .filter((employee) => !employee.isArchived)
           .map((employee) => [
-            'Employee',
+            'employee',
+            BRANDING.organizationName,
+            BRANDING.productName,
+            generatedAt,
+            viewerRole,
             employee.employeeNumber,
             `${employee.firstName} ${employee.lastName}`,
             employee.email,
@@ -516,7 +549,11 @@ function DashboardPage({ session }: { session: User }) {
         ...allLeaveRequests.map((leave) => {
           const employee = employeeById.get(leave.employeeId);
           return [
-            'Leave request',
+            'leave_request',
+            BRANDING.organizationName,
+            BRANDING.productName,
+            generatedAt,
+            viewerRole,
             employee?.employeeNumber ?? '',
             employee ? `${employee.firstName} ${employee.lastName}` : leave.employeeName ?? 'Unknown employee',
             employee?.email ?? '',
@@ -540,14 +577,15 @@ function DashboardPage({ session }: { session: User }) {
             .join(','),
         )
         .join('\r\n');
-      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `ceo-mhru-workforce-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.download = `${REPORT_FILENAME_PREFIX}-workforce-report-${generatedAt.slice(0, 10)}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setExportNotice(`Report downloaded with ${employees.length} employee records and ${allLeaveRequests.length} leave records.`);
     } catch (requestError) {
       setActionError(requestError instanceof Error ? requestError.message : 'Unable to export the workforce report.');
     } finally {
@@ -571,6 +609,9 @@ function DashboardPage({ session }: { session: User }) {
     status,
     label,
     total: statusTotals.get(status) ?? 0,
+    percentage: summary?.totalEmployees
+      ? Math.round(((statusTotals.get(status) ?? 0) / summary.totalEmployees) * 100)
+      : 0,
   }));
   const maxDepartmentSize = Math.max(...(summary?.employeesByDepartment.map((item) => item.total) ?? [0]), 1);
   const activeRate = summary?.totalEmployees
@@ -602,13 +643,13 @@ function DashboardPage({ session }: { session: User }) {
       <section className="dashboard-hero">
         <div>
           <div className="eyebrow">{todayLabel}</div>
-          <h1>People at a glance</h1>
-          <p>Welcome back, {session.name.split(' ')[0]}. Here’s your team’s latest overview.</p>
+          <h1>{BRANDING.workforceLabel} at a glance</h1>
+          <p>Welcome back, {session.name.split(' ')[0]}. Here’s the latest workforce overview.</p>
         </div>
         <div className="dashboard-controls">
-          <span className="last-updated">
+          <time className="last-updated" dateTime={lastUpdated?.toISOString()}>
             {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Loading'}
-          </span>
+          </time>
           <button
             type="button"
             className="ghost-button compact"
@@ -627,34 +668,35 @@ function DashboardPage({ session }: { session: User }) {
 
       {error ? <div className="error-banner dashboard-error">{error}</div> : null}
       {actionError ? <div className="error-banner dashboard-error">{actionError}</div> : null}
+      {exportNotice ? <div className="dashboard-notice" role="status">{exportNotice}</div> : null}
 
       <div className="stats-grid dashboard-stats">
         <StatCard
-          label="Team members"
+          label="Workforce size"
           value={String(summary.totalEmployees)}
           detail={`${summary.employeesByDepartment.length} departments`}
           icon={<Users size={18} />}
           tone="blue"
         />
         <StatCard
-          label="Active employees"
+          label="Active workforce"
           value={String(summary.activeEmployees)}
-          detail={`${activeRate}% of current workforce`}
+          detail={`${activeRate}% of total workforce`}
           icon={<Activity size={18} />}
           tone="green"
         />
         <StatCard
-          label="Leave approvals"
+          label="Pending leave"
           value={String(summary.pendingLeave)}
           detail={summary.pendingLeave ? 'Waiting for review' : 'Nothing waiting for review'}
           icon={<Clock3 size={18} />}
           tone="amber"
         />
         <StatCard
-          label="Departments"
-          value={String(summary.employeesByDepartment.length)}
-          detail="Across the organization"
-          icon={<Building2 size={18} />}
+          label="Hires this month"
+          value={String(summary.newEmployees)}
+          detail="Month to date"
+          icon={<UserPlus size={18} />}
           tone="violet"
         />
       </div>
@@ -665,16 +707,16 @@ function DashboardPage({ session }: { session: User }) {
             <div className="workforce-summary">
               <div className="workforce-total">{summary.totalEmployees}</div>
               <div>
-                <strong>People in your workforce</strong>
+                <strong>{BRANDING.workforceLabel} in the workforce</strong>
                 <span className="muted-copy">Current employment status</span>
               </div>
             </div>
             <div className="status-breakdown">
-              {statusCounts.map(({ status, label, total }) => (
+              {statusCounts.map(({ status, label, total, percentage }) => (
                 <div key={status} className="status-metric">
                   <div className="metric-row">
                     <span><i className={`legend-dot ${status}`} />{label}</span>
-                    <strong>{total}</strong>
+                    <strong>{total} <span className="metric-share">{percentage}%</span></strong>
                   </div>
                   <div className="progress-track">
                     <span className={`progress-${status}`} style={{ width: `${summary.totalEmployees ? (total / summary.totalEmployees) * 100 : 0}%` }} />
@@ -697,7 +739,12 @@ function DashboardPage({ session }: { session: User }) {
                       <div className="department-bar-label">
                         <span className={`department-marker marker-${index % 4}`} />
                         <span>{department.name}</span>
-                        <strong>{department.total}</strong>
+                        <strong>
+                          {department.total}
+                          <span className="metric-share">
+                            {summary.totalEmployees ? Math.round((department.total / summary.totalEmployees) * 100) : 0}%
+                          </span>
+                        </strong>
                       </div>
                       <div className="progress-track">
                         <span style={{ width: `${(department.total / maxDepartmentSize) * 100}%` }} />

@@ -1,5 +1,7 @@
 :root {
   font-family: Inter, 'Segoe UI', sans-serif;
+  --brand-primary: #60a5fa;
+  --brand-accent: #2dd4bf;
   line-height: 1.5;
   font-weight: 400;
   color: #e5eefb;
@@ -76,11 +78,14 @@ button {
 .brand-mark {
   width: 48px;
   height: 48px;
+  flex: 0 0 48px;
   border-radius: 14px;
   display: grid;
   place-items: center;
   font-weight: 700;
-  background: linear-gradient(135deg, #60a5fa, #2dd4bf);
+  font-size: 0.9rem;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
   color: #061320;
 }
 
@@ -134,7 +139,7 @@ h1 {
 }
 
 .primary-button {
-  background: linear-gradient(135deg, #60a5fa, #2dd4bf);
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-accent));
   color: #04111d;
 }
 
@@ -701,6 +706,13 @@ h1 {
   color: #e5eef8;
 }
 
+.metric-share {
+  margin-left: 0.25rem;
+  color: #91a7c0;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
 .legend-dot,
 .department-marker {
   width: 0.5rem;
@@ -904,6 +916,11 @@ h1 {
 .sidebar-heading .sidebar-brand {
   min-width: 0;
   margin-bottom: 0;
+}
+
+.sidebar-brand-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sidebar-collapse-button,
@@ -1118,7 +1135,7 @@ h1 {
 
 .shell[data-theme='light'] .primary-button {
   color: #fff;
-  background: #2563eb;
+  background: var(--brand-primary);
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.16);
 }
 
@@ -1171,6 +1188,16 @@ h1 {
 .shell[data-theme='light'] .status-metric .metric-row > span,
 .shell[data-theme='light'] .department-bar-label {
   color: #475569;
+}
+
+.shell[data-theme='light'] .metric-share {
+  color: #64748b;
+}
+
+.shell[data-theme='light'] .dashboard-notice {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
 }
 
 .shell[data-theme='light'] .progress-track {
@@ -1511,6 +1538,15 @@ h1 {
 
 .dashboard-error {
   padding: 0.65rem 0.85rem;
+}
+
+.dashboard-notice {
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  color: #a7f3d0;
+  background: rgba(6, 95, 70, 0.18);
+  font-size: 0.85rem;
 }
 
 .spin {

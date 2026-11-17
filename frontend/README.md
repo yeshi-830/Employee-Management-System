@@ -1,32 +1,27 @@
-# React + TypeScript + Vite
+# People Operations frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The frontend is a React and TypeScript workspace for workforce, department, and leave management.
 
-Currently, two official plugins are available:
+## Configure the app
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Copy `.env.example` to `.env.local` and set values for the target company before starting Vite or building:
 
-## React Compiler
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `VITE_API_URL` | Backend API base URL | `http://localhost:4000/api` in development; `/api` in production |
+| `VITE_ORGANIZATION_NAME` | Organization name shown in the sign-in and workspace navigation | `Your Organization` |
+| `VITE_PRODUCT_NAME` | Product title and report metadata | `People Operations` |
+| `VITE_PRODUCT_SHORT_NAME` | Compact workspace mark | `PO` |
+| `VITE_WORKFORCE_LABEL` | Dashboard workforce terminology | `People` |
+| `VITE_BRAND_PRIMARY_COLOR` | Primary brand color as a six-digit hex value | `#60a5fa` |
+| `VITE_BRAND_ACCENT_COLOR` | Accent brand color as a six-digit hex value | `#2dd4bf` |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Vite embeds `VITE_*` values in the client bundle. Do not put credentials, private keys, or other secrets in these variables.
 
-## Expanding the Oxlint configuration
+## Analyst reports
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+The dashboard summary is scoped by the signed-in user's permissions. Exported CSV rows include a record type, organization and product metadata, generation time, and viewer role. Employee and leave data are fetched from the API using the same authorization scope; CSV cells are escaped and guarded against spreadsheet formula execution.
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
+## Development
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Run `npm run dev` to start the frontend, `npm run build` for a production build and TypeScript check, or `npm run lint` to lint the source.
