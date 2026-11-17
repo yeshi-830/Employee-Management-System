@@ -555,20 +555,23 @@ function DashboardPage({ session }: { session: User }) {
     }
   };
 
-  const activeEmployees = employees.filter((employee) => !employee.isArchived);
   const pendingRequests = leaveRequests.filter((request) => request.status === 'pending');
   const upcomingLeave = leaveRequests
     .filter((request) => request.status === 'approved' && new Date(`${request.endDate.slice(0, 10)}T00:00:00`) >= startOfToday())
     .sort((first, second) => first.startDate.localeCompare(second.startDate))
     .slice(0, 4);
-  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
-
-  const statusCounts = [
-    { status: 'active', label: 'Active', total: activeEmployees.filter((employee) => employee.employmentStatus === 'active').length },
-    { status: 'probation', label: 'Probation', total: activeEmployees.filter((employee) => employee.employmentStatus === 'probation').length },
-    { status: 'on_leave', label: 'On leave', total: activeEmployees.filter((employee) => employee.employmentStatus === 'on_leave').length },
-    { status: 'inactive', label: 'Inactive', total: activeEmployees.filter((employee) => employee.employmentStatus === 'inactive').length },
+  const statusTotals = new Map(summary?.employeesByStatus.map(({ status, total }) => [status, total]) ?? []);
+  const statusLabels: Array<{ status: EmployeeRecord['employmentStatus']; label: string }> = [
+    { status: 'active', label: 'Active' },
+    { status: 'probation', label: 'Probation' },
+    { status: 'on_leave', label: 'On leave' },
+    { status: 'inactive', label: 'Inactive' },
   ];
+  const statusCounts = statusLabels.map(({ status, label }) => ({
+    status,
+    label,
+    total: statusTotals.get(status) ?? 0,
+  }));
   const maxDepartmentSize = Math.max(...(summary?.employeesByDepartment.map((item) => item.total) ?? [0]), 1);
   const activeRate = summary?.totalEmployees
     ? Math.round((summary.activeEmployees / summary.totalEmployees) * 100)
@@ -615,9 +618,9 @@ function DashboardPage({ session }: { session: User }) {
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
             Refresh
           </button>
-          <button type="button" className="primary-button compact" onClick={exportReport} disabled={loading}>
+          <button type="button" className="primary-button compact" onClick={() => void exportReport()} disabled={loading || exporting}>
             <Download size={16} />
-            Export report
+            {exporting ? 'Exporting...' : 'Export report'}
           </button>
         </div>
       </section>
@@ -642,8 +645,8 @@ function DashboardPage({ session }: { session: User }) {
         />
         <StatCard
           label="Leave approvals"
-          value={String(pendingRequests.length)}
-          detail={pendingRequests.length ? 'Waiting for review' : 'Nothing waiting for review'}
+          value={String(summary.pendingLeave)}
+          detail={summary.pendingLeave ? 'Waiting for review' : 'Nothing waiting for review'}
           icon={<Clock3 size={18} />}
           tone="amber"
         />
