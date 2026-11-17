@@ -151,17 +151,6 @@ h1 {
   padding: 0.75rem 0.9rem;
 }
 
-.demo-box {
-  margin-top: 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  color: #bfdbfe;
-  background: rgba(59, 130, 246, 0.08);
-  border-radius: 10px;
-  padding: 0.7rem 0.9rem;
-}
-
 .shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

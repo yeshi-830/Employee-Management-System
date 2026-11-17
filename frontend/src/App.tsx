@@ -100,7 +100,7 @@ type EmployeeFormState = {
   employmentStatus: EmployeeRecord['employmentStatus'];
 };
 
-const API_BASE = (import.meta.env.VITE_API_URL as string) ?? 'http://localhost:4000/api';
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000/api' : '/api');
 
 type PagedCollection<T, Key extends string> = { pagination: Pagination } & Record<Key, T[]>;
 
@@ -744,41 +744,38 @@ function DashboardPage({ session }: { session: User }) {
           <div className="dashboard-card-content">
             {pendingRequests.length ? (
               <div className="leave-list">
-                {pendingRequests.slice(0, 3).map((request) => {
-                  const employee = employeeById.get(request.employeeId);
-                  return (
-                    <div className="leave-row" key={request.id}>
-                      <div className="leave-row-heading">
-                        <div>
-                          <strong>{employee ? `${employee.firstName} ${employee.lastName}` : request.employeeName ?? 'Unknown employee'}</strong>
-                          <span>{request.leaveType} · {formatDate(request.startDate)} – {formatDate(request.endDate)}</span>
-                        </div>
-                        <span className="status-pill pending">Pending</span>
+                {pendingRequests.slice(0, 3).map((request) => (
+                  <div className="leave-row" key={request.id}>
+                    <div className="leave-row-heading">
+                      <div>
+                        <strong>{request.employeeName ?? 'Unknown employee'}</strong>
+                        <span>{request.leaveType} · {formatDate(request.startDate)} – {formatDate(request.endDate)}</span>
                       </div>
-                      {request.reason ? <p className="leave-reason">{request.reason}</p> : null}
-                      {canReviewLeave ? (
-                        <div className="button-row leave-actions">
-                          <button
-                            type="button"
-                            className="ghost-button compact success"
-                            onClick={() => void updateLeaveStatus(request.id, 'approved')}
-                            disabled={updatingLeaveId === request.id}
-                          >
-                            <Check size={15} /> Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button compact danger"
-                            onClick={() => void updateLeaveStatus(request.id, 'rejected')}
-                            disabled={updatingLeaveId === request.id}
-                          >
-                            <X size={15} /> Reject
-                          </button>
-                        </div>
-                      ) : null}
+                      <span className="status-pill pending">Pending</span>
                     </div>
-                  );
-                })}
+                    {request.reason ? <p className="leave-reason">{request.reason}</p> : null}
+                    {canReviewLeave ? (
+                      <div className="button-row leave-actions">
+                        <button
+                          type="button"
+                          className="ghost-button compact success"
+                          onClick={() => void updateLeaveStatus(request.id, 'approved')}
+                          disabled={updatingLeaveId === request.id}
+                        >
+                          <Check size={15} /> Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-button compact danger"
+                          onClick={() => void updateLeaveStatus(request.id, 'rejected')}
+                          disabled={updatingLeaveId === request.id}
+                        >
+                          <X size={15} /> Reject
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="empty-state">You’re all caught up. No requests need review.</div>
@@ -793,21 +790,18 @@ function DashboardPage({ session }: { session: User }) {
           <div className="dashboard-card-content">
             {upcomingLeave.length ? (
               <div className="upcoming-list">
-                {upcomingLeave.map((request) => {
-                  const employee = employeeById.get(request.employeeId);
-                  return (
-                    <div className="upcoming-row" key={request.id}>
-                      <div className="date-tile">
-                        <span>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: 'short' })}</span>
-                        <strong>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).getDate()}</strong>
-                      </div>
-                      <div className="hire-details">
-                        <strong>{employee ? `${employee.firstName} ${employee.lastName}` : request.employeeName ?? 'Unknown employee'}</strong>
-                        <span>{request.leaveType} · through {formatDate(request.endDate)}</span>
-                      </div>
+                {upcomingLeave.map((request) => (
+                  <div className="upcoming-row" key={request.id}>
+                    <div className="date-tile">
+                      <span>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: 'short' })}</span>
+                      <strong>{new Date(`${request.startDate.slice(0, 10)}T12:00:00`).getDate()}</strong>
                     </div>
-                  );
-                })}
+                    <div className="hire-details">
+                      <strong>{request.employeeName ?? 'Unknown employee'}</strong>
+                      <span>{request.leaveType} · through {formatDate(request.endDate)}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="empty-state">No upcoming approved time off.</div>
@@ -837,9 +831,14 @@ function DashboardPage({ session }: { session: User }) {
               <span><strong>Leave management</strong><small>Review requests and time off</small></span>
               <ArrowUpRight size={16} />
             </NavLink>
-            <button type="button" className="quick-action quick-action-button" onClick={exportReport}>
+            <button
+              type="button"
+              className="quick-action quick-action-button"
+              onClick={() => void exportReport()}
+              disabled={loading || exporting}
+            >
               <span className="quick-action-icon"><Download size={18} /></span>
-              <span><strong>Download workforce report</strong><small>Export employees and leave data</small></span>
+              <span><strong>{exporting ? 'Preparing workforce report...' : 'Download workforce report'}</strong><small>Export employees and leave data</small></span>
               <ArrowUpRight size={16} />
             </button>
           </div>
