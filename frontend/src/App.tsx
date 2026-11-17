@@ -16,7 +16,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  ShieldCheck,
   Sun,
   UserPlus,
   Users,
@@ -76,6 +75,7 @@ type DashboardSummary = {
   totalEmployees: number;
   activeEmployees: number;
   pendingLeave: number;
+  employeesByStatus: Array<{ status: EmployeeRecord['employmentStatus']; total: number }>;
   employeesByDepartment: Array<{ id: string; name: string; total: number }>;
   recentHires: EmployeeRecord[];
 };
@@ -101,6 +101,8 @@ type EmployeeFormState = {
 };
 
 const API_BASE = (import.meta.env.VITE_API_URL as string) ?? 'http://localhost:4000/api';
+
+type PagedCollection<T, Key extends string> = { pagination: Pagination } & Record<Key, T[]>;
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = (options.method ?? 'GET').toUpperCase();
@@ -128,6 +130,23 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   }
 
   return (await response.json()) as T;
+}
+
+async function fetchAllPages<T, Key extends 'employees' | 'leaveRequests'>(
+  path: string,
+  collection: Key,
+): Promise<T[]> {
+  const query = new URLSearchParams({ page: '1', pageSize: '100' });
+  const firstPage = await apiFetch<PagedCollection<T, Key>>(`${path}?${query}`);
+  const records = [...firstPage[collection]];
+
+  for (let page = 2; page <= firstPage.pagination.totalPages; page += 1) {
+    query.set('page', String(page));
+    const result = await apiFetch<PagedCollection<T, Key>>(`${path}?${query}`);
+    records.push(...result[collection]);
+  }
+
+  return records;
 }
 
 function App() {
@@ -186,8 +205,8 @@ function App() {
 }
 
 function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<User> }) {
-  const [email, setEmail] = useState(import.meta.env.DEV ? 'hr@northstar.example' : '');
-  const [password, setPassword] = useState(import.meta.env.DEV ? 'Password123!' : '');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -247,13 +266,6 @@ function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => 
             {submitting ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
-
-        {import.meta.env.DEV ? (
-          <div className="demo-box">
-            <ShieldCheck size={18} />
-            <span>Demo credentials: hr@northstar.example / Password123!</span>
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -410,7 +422,6 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
 
 function DashboardPage({ session }: { session: User }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRecord[]>([]);
   const [todayLabel] = useState(() => formatLongDate(new Date()));
   const [loading, setLoading] = useState(true);
@@ -418,6 +429,7 @@ function DashboardPage({ session }: { session: User }) {
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
   const [updatingLeaveId, setUpdatingLeaveId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -425,14 +437,13 @@ function DashboardPage({ session }: { session: User }) {
 
     Promise.all([
       apiFetch<DashboardSummary>('/dashboard/summary'),
-      apiFetch<{ employees: EmployeeRecord[] }>('/employees'),
-      apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests'),
+      apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests?status=pending&pageSize=20'),
+      apiFetch<{ leaveRequests: LeaveRequestRecord[] }>('/leave-requests?status=approved&pageSize=100'),
     ])
-      .then(([dashboard, employeeResponse, leaveResponse]) => {
+      .then(([dashboard, pendingResponse, approvedResponse]) => {
         if (!isCurrent) return;
         setSummary(dashboard);
-        setEmployees(employeeResponse.employees);
-        setLeaveRequests(leaveResponse.leaveRequests);
+        setLeaveRequests([...pendingResponse.leaveRequests, ...approvedResponse.leaveRequests]);
         setLastUpdated(new Date());
       })
       .catch((requestError: unknown) => {
@@ -474,10 +485,18 @@ function DashboardPage({ session }: { session: User }) {
     }
   };
 
-  const exportReport = () => {
-    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
-    const departmentById = new Map(summary?.employeesByDepartment.map((department) => [department.id, department.name]) ?? []);
-    const rows = [
+  const exportReport = async () => {
+    setExporting(true);
+    setActionError('');
+
+    try {
+      const [employees, allLeaveRequests] = await Promise.all([
+        fetchAllPages<EmployeeRecord, 'employees'>('/employees', 'employees'),
+        fetchAllPages<LeaveRequestRecord, 'leaveRequests'>('/leave-requests', 'leaveRequests'),
+      ]);
+      const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+      const departmentById = new Map(summary?.employeesByDepartment.map((department) => [department.id, department.name]) ?? []);
+      const rows = [
       ['Record type', 'Employee number', 'Employee name', 'Email', 'Job title', 'Department', 'Employment status', 'Leave type', 'Start date', 'End date', 'Leave status'],
       ...employees
         .filter((employee) => !employee.isArchived)
@@ -494,7 +513,7 @@ function DashboardPage({ session }: { session: User }) {
           '',
           '',
         ]),
-      ...leaveRequests.map((leave) => {
+      ...allLeaveRequests.map((leave) => {
         const employee = employeeById.get(leave.employeeId);
         return [
           'Leave request',
@@ -510,25 +529,30 @@ function DashboardPage({ session }: { session: User }) {
           leave.status,
         ];
       }),
-    ];
-    const csv = rows
-      .map((row) =>
-        row
-          .map((value) => {
-            const safeValue = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-            return `"${safeValue.replaceAll('"', '""')}"`;
-          })
-          .join(','),
-      )
-      .join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `ceo-mhru-workforce-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+      ];
+      const csv = rows
+        .map((row) =>
+          row
+            .map((value) => {
+              const safeValue = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+              return `"${safeValue.replaceAll('"', '""')}"`;
+            })
+            .join(','),
+        )
+        .join('\r\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ceo-mhru-workforce-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'Unable to export the workforce report.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const activeEmployees = employees.filter((employee) => !employee.isArchived);
