@@ -497,38 +497,38 @@ function DashboardPage({ session }: { session: User }) {
       const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
       const departmentById = new Map(summary?.employeesByDepartment.map((department) => [department.id, department.name]) ?? []);
       const rows = [
-      ['Record type', 'Employee number', 'Employee name', 'Email', 'Job title', 'Department', 'Employment status', 'Leave type', 'Start date', 'End date', 'Leave status'],
-      ...employees
-        .filter((employee) => !employee.isArchived)
-        .map((employee) => [
-          'Employee',
-          employee.employeeNumber,
-          `${employee.firstName} ${employee.lastName}`,
-          employee.email,
-          employee.jobTitle,
-          departmentById.get(employee.departmentId) ?? 'Unassigned',
-          employee.employmentStatus,
-          '',
-          '',
-          '',
-          '',
-        ]),
-      ...allLeaveRequests.map((leave) => {
-        const employee = employeeById.get(leave.employeeId);
-        return [
-          'Leave request',
-          employee?.employeeNumber ?? '',
-          employee ? `${employee.firstName} ${employee.lastName}` : leave.employeeName ?? 'Unknown employee',
-          employee?.email ?? '',
-          employee?.jobTitle ?? '',
-          employee ? departmentById.get(employee.departmentId) ?? 'Unassigned' : '',
-          employee?.employmentStatus ?? '',
-          leave.leaveType,
-          leave.startDate,
-          leave.endDate,
-          leave.status,
-        ];
-      }),
+        ['Record type', 'Employee number', 'Employee name', 'Email', 'Job title', 'Department', 'Employment status', 'Leave type', 'Start date', 'End date', 'Leave status'],
+        ...employees
+          .filter((employee) => !employee.isArchived)
+          .map((employee) => [
+            'Employee',
+            employee.employeeNumber,
+            `${employee.firstName} ${employee.lastName}`,
+            employee.email,
+            employee.jobTitle,
+            departmentById.get(employee.departmentId) ?? 'Unassigned',
+            employee.employmentStatus,
+            '',
+            '',
+            '',
+            '',
+          ]),
+        ...allLeaveRequests.map((leave) => {
+          const employee = employeeById.get(leave.employeeId);
+          return [
+            'Leave request',
+            employee?.employeeNumber ?? '',
+            employee ? `${employee.firstName} ${employee.lastName}` : leave.employeeName ?? 'Unknown employee',
+            employee?.email ?? '',
+            employee?.jobTitle ?? '',
+            employee ? departmentById.get(employee.departmentId) ?? 'Unassigned' : '',
+            employee?.employmentStatus ?? '',
+            leave.leaveType,
+            leave.startDate,
+            leave.endDate,
+            leave.status,
+          ];
+        }),
       ];
       const csv = rows
         .map((row) =>
