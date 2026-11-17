@@ -13,8 +13,8 @@ Copy `.env.example` to `.env.local` and set values for the target company before
 | `VITE_PRODUCT_NAME` | Product title and report metadata | `People Operations` |
 | `VITE_PRODUCT_SHORT_NAME` | Compact workspace mark | `PO` |
 | `VITE_WORKFORCE_LABEL` | Dashboard workforce terminology | `People` |
-| `VITE_BRAND_PRIMARY_COLOR` | Primary brand color as a six-digit hex value | `#60a5fa` |
-| `VITE_BRAND_ACCENT_COLOR` | Accent brand color as a six-digit hex value | `#2dd4bf` |
+| `VITE_BRAND_PRIMARY_COLOR` | Primary brand color as a quoted six-digit hex value | `#60a5fa` |
+| `VITE_BRAND_ACCENT_COLOR` | Accent brand color as a quoted six-digit hex value | `#2dd4bf` |
 
 Vite embeds `VITE_*` values in the client bundle. Do not put credentials, private keys, or other secrets in these variables.
 
