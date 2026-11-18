@@ -110,8 +110,10 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
   });
 });
 
-app.listen(env.PORT, () => {
-  console.log(`EMS API running on http://localhost:${env.PORT}`);
-});
+if (env.NODE_ENV !== 'test') {
+  app.listen(env.PORT, () => {
+    console.log(`EMS API running on http://localhost:${env.PORT}`);
+  });
+}
 
 export default app;

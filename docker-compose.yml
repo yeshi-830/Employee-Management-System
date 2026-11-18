@@ -20,5 +20,25 @@ services:
       timeout: 5s
       retries: 10
 
+  mysql-test:
+    image: mysql:8.4
+    container_name: ems-mysql-test
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: employee_management_test
+      MYSQL_USER: ems_test_user
+      MYSQL_PASSWORD: ems_test_password
+      MYSQL_ROOT_PASSWORD: ems_test_root_password
+    ports:
+      - '3307:3306'
+    volumes:
+      - mysql_test_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pems_test_root_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   mysql_data:
+  mysql_test_data:

@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "echo \"No backend tests configured yet\""
+    "test": "npm run test:integration",
+    "test:integration": "tsx --test test/attendance.integration.test.ts"
   },
   "keywords": [
     "employee-management",
