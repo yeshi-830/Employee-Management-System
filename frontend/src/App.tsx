@@ -966,8 +966,8 @@ function EmployeesPage({ session }: { session: User }) {
       const payload = {
         ...form,
         managerId: form.managerId || null,
-        phone: form.phone || '+1-555-0100',
-        departmentId: form.departmentId || departments[0]?.id || 'dept-1',
+        phone: form.phone.trim() || null,
+        departmentId: form.departmentId || null,
         ...(form.employeeNumber.trim() ? { employeeNumber: form.employeeNumber.trim() } : {}),
       };
 
@@ -977,7 +977,7 @@ function EmployeesPage({ session }: { session: User }) {
       });
 
       setEmployees((current) => [result.employee, ...current]);
-      setForm(createDefaultEmployeeForm());
+      setForm(createDefaultEmployeeForm(departments[0]?.id ?? ''));
       setIsCreating(false);
       setSearchParams({}, { replace: true });
     } catch (error) {
@@ -1050,6 +1050,8 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 First name
                 <input
+                  required
+                  maxLength={80}
                   value={form.firstName}
                   onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
                 />
@@ -1057,6 +1059,8 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Last name
                 <input
+                  required
+                  maxLength={80}
                   value={form.lastName}
                   onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
                 />
@@ -1065,6 +1069,7 @@ function EmployeesPage({ session }: { session: User }) {
                 Employee #
                 <input
                   placeholder="Generated when left blank"
+                  maxLength={32}
                   value={form.employeeNumber}
                   onChange={(event) => setForm((current) => ({ ...current, employeeNumber: event.target.value }))}
                 />
@@ -1073,6 +1078,8 @@ function EmployeesPage({ session }: { session: User }) {
                 Email
                 <input
                   type="email"
+                  required
+                  maxLength={254}
                   value={form.email}
                   onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
                 />
@@ -1080,6 +1087,7 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Phone
                 <input
+                  maxLength={40}
                   value={form.phone}
                   onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
                 />
@@ -1087,6 +1095,8 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Job title
                 <input
+                  required
+                  maxLength={120}
                   value={form.jobTitle}
                   onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))}
                 />
@@ -1094,9 +1104,13 @@ function EmployeesPage({ session }: { session: User }) {
               <label>
                 Department
                 <select
+                  required={session.role === 'department_manager'}
                   value={form.departmentId}
                   onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}
                 >
+                  <option value="">
+                    {session.role === 'department_manager' ? 'Select department' : 'No department assigned'}
+                  </option>
                   {departments.map((department) => (
                     <option key={department.id} value={department.id}>
                       {department.name}
@@ -1108,6 +1122,7 @@ function EmployeesPage({ session }: { session: User }) {
                 Hire date
                 <input
                   type="date"
+                  required
                   value={form.hireDate}
                   onChange={(event) => setForm((current) => ({ ...current, hireDate: event.target.value }))}
                 />
@@ -1128,6 +1143,9 @@ function EmployeesPage({ session }: { session: User }) {
               </label>
             </div>
             {formError ? <div className="error-banner">{formError}</div> : null}
+            {session.role === 'department_manager' && !departments.length ? (
+              <div className="muted-copy">Your account must be assigned to a department before you can add employees.</div>
+            ) : null}
             <div className="button-row right-align">
               <button
                 type="button"
@@ -1139,7 +1157,11 @@ function EmployeesPage({ session }: { session: User }) {
               >
                 Cancel
               </button>
-              <button type="submit" className="primary-button compact" disabled={submitting}>
+              <button
+                type="submit"
+                className="primary-button compact"
+                disabled={submitting || (session.role === 'department_manager' && !form.departmentId)}
+              >
                 {submitting ? 'Saving...' : 'Save employee'}
               </button>
             </div>
@@ -1627,17 +1649,20 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-function createDefaultEmployeeForm(): EmployeeFormState {
+function createDefaultEmployeeForm(departmentId = ''): EmployeeFormState {
+  const today = new Date();
+  const localHireDate = new Date(today.getTime() - today.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+
   return {
     employeeNumber: '',
     firstName: '',
     lastName: '',
     email: '',
-    phone: '+1-555-0100',
-    departmentId: 'dept-1',
-    jobTitle: 'Operations Specialist',
+    phone: '',
+    departmentId,
+    jobTitle: '',
     managerId: '',
-    hireDate: new Date().toISOString().slice(0, 10),
+    hireDate: localHireDate,
     employmentStatus: 'active',
   };
 }
