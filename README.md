@@ -29,6 +29,12 @@ It is used to control and monitor employee records and operations across the org
    - `cd frontend`
    - `npm run dev -- --host 0.0.0.0`
 
+## Attendance database integration test
+
+1. Start the isolated test database with `docker compose up -d mysql-test`.
+2. Set `TEST_DATABASE_URL` in `backend/.env` to the test URL from `backend/.env.example`.
+3. Run `npm test` from `backend`. The test pushes the Prisma schema only to a local database ending in `_test`, exercises concurrent clock-in, clock-out, auditing, and role-based visibility, then removes its fixtures.
+
 ## Demo login
 
 Use the built-in seeded account:
