@@ -85,7 +85,7 @@ router.get('/', authenticate, authorize(['admin', 'hr_manager', 'department_mana
   return res.json({
     attendanceRecords: records.map(toAttendanceRecord),
     activeRecord: activeRecord ? toAttendanceRecord(activeRecord) : null,
-    canClock: canClock(ownEmployee),
+    canClock: canClock(ownEmployee) || Boolean(activeRecord),
     pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
   });
 });
