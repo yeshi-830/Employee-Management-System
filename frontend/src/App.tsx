@@ -447,7 +447,7 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage session={session} />} />
           <Route path="/employees" element={<EmployeesPage session={session} />} />
-          <Route path="/attendance" element={<AttendancePage session={session} />} />
+          <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/departments" element={<DepartmentsPage session={session} />} />
           <Route path="/leave-requests" element={<LeavePage session={session} />} />
         </Routes>
@@ -1625,7 +1625,7 @@ function LeavePage({ session }: { session: User }) {
   );
 }
 
-function AttendancePage({ session }: { session: User }) {
+function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [activeRecord, setActiveRecord] = useState<AttendanceRecord | null>(null);
   const [canClock, setCanClock] = useState(false);
@@ -1661,7 +1661,6 @@ function AttendancePage({ session }: { session: User }) {
       }
     };
 
-    setLoading(true);
     void loadAttendance();
     return () => {
       active = false;
@@ -1681,9 +1680,11 @@ function AttendancePage({ session }: { session: User }) {
       setActiveRecord(action === 'clock-in' ? result.attendanceRecord : null);
       setNotice(action === 'clock-in' ? 'You are now clocked in.' : 'Your attendance session is complete.');
       setPage(1);
+      setLoading(true);
       setRefreshKey((current) => current + 1);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to update your attendance.');
+      setLoading(true);
       setRefreshKey((current) => current + 1);
     } finally {
       setSubmitting(false);
@@ -1692,7 +1693,13 @@ function AttendancePage({ session }: { session: User }) {
 
   const refreshAttendance = () => {
     setError('');
+    setLoading(true);
     setRefreshKey((current) => current + 1);
+  };
+
+  const changePage = (nextPage: number) => {
+    setLoading(true);
+    setPage(nextPage);
   };
 
   return (
@@ -1787,7 +1794,7 @@ function AttendancePage({ session }: { session: User }) {
               <button
                 type="button"
                 className="ghost-button compact"
-                onClick={() => setPage((current) => current - 1)}
+                onClick={() => changePage(page - 1)}
                 disabled={page <= 1 || loading}
               >
                 Previous
@@ -1796,7 +1803,7 @@ function AttendancePage({ session }: { session: User }) {
               <button
                 type="button"
                 className="ghost-button compact"
-                onClick={() => setPage((current) => current + 1)}
+                onClick={() => changePage(page + 1)}
                 disabled={page >= pagination.totalPages || loading}
               >
                 Next
