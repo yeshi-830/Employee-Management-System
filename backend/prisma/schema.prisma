@@ -44,42 +44,42 @@ model User {
 }
 
 model Department {
-  id          String    @id @default(cuid())
-  name        String    @unique
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
-  budget      Decimal?  @db.Decimal(12, 2)
+  budget      Decimal? @db.Decimal(12, 2)
   managerId   String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   employees Employee[]
-  manager   Employee? @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  manager   Employee?  @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
 
   @@index([managerId])
 }
 
 model Employee {
-  id               String            @id @default(cuid())
-  employeeNumber   String            @unique
+  id               String           @id @default(cuid())
+  employeeNumber   String           @unique
   firstName        String
   lastName         String
-  email            String            @unique
+  email            String           @unique
   phone            String?
   departmentId     String?
   jobTitle         String
   managerId        String?
   hireDate         DateTime
   employmentStatus EmploymentStatus @default(ACTIVE)
-  isArchived       Boolean           @default(false)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  isArchived       Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
-  department Department? @relation(fields: [departmentId], references: [id])
-  manager    Employee?    @relation("ManagerReports", fields: [managerId], references: [id])
-  reports    Employee[]   @relation("ManagerReports")
-  managedDepartments Department[] @relation("DepartmentManager")
-  leaves     LeaveRequest[]
-  attendanceRecords AttendanceRecord[]
+  department         Department?        @relation(fields: [departmentId], references: [id])
+  manager            Employee?          @relation("ManagerReports", fields: [managerId], references: [id])
+  reports            Employee[]         @relation("ManagerReports")
+  managedDepartments Department[]       @relation("DepartmentManager")
+  leaves             LeaveRequest[]
+  attendanceRecords  AttendanceRecord[]
 
   @@index([departmentId])
   @@index([managerId])
@@ -88,12 +88,12 @@ model Employee {
 }
 
 model LeaveType {
-  id          String        @id @default(cuid())
-  name        String        @unique
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
   daysAllowed Int
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   requests LeaveRequest[]
 }
@@ -117,11 +117,11 @@ model LeaveRequest {
 }
 
 model AttendanceRecord {
-  id                 String    @id @default(cuid())
-  employeeId         String
-  openForEmployeeId  String?   @unique
-  clockInAt          DateTime  @default(now())
-  clockOutAt         DateTime?
+  id                String    @id @default(cuid())
+  employeeId        String
+  openForEmployeeId String?   @unique
+  clockInAt         DateTime  @default(now())
+  clockOutAt        DateTime?
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
