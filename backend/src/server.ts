@@ -10,6 +10,7 @@ import { env } from './config/env.js';
 import { ApiError } from './lib/apiError.js';
 import { prisma } from './lib/prisma.js';
 import authRouter from './routes/auth.js';
+import attendanceRouter from './routes/attendance.js';
 import dashboardRouter from './routes/dashboard.js';
 import departmentsRouter from './routes/departments.js';
 import employeesRouter from './routes/employees.js';
@@ -54,6 +55,7 @@ app.use((req, res, next) => {
 
 app.use('/api/auth', authRouter);
 
+app.use('/api/attendance', attendanceRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/employees', employeesRouter);
 app.use('/api/departments', departmentsRouter);

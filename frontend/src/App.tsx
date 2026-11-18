@@ -65,6 +65,16 @@ type LeaveRequestRecord = {
   status: 'pending' | 'approved' | 'rejected';
 };
 
+type AttendanceRecord = {
+  id: string;
+  employeeId: string;
+  employeeNumber: string;
+  employeeName: string;
+  departmentName: string;
+  clockInAt: string;
+  clockOutAt: string | null;
+};
+
 type LeaveTypeRecord = {
   id: string;
   name: string;
@@ -306,6 +316,7 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/employees', label: 'Employees', icon: Users },
+    { to: '/attendance', label: 'Attendance', icon: Clock3 },
     { to: '/departments', label: 'Departments', icon: Building2 },
     { to: '/leave-requests', label: 'Leave requests', icon: CalendarCheck2 },
   ].filter((item) => item.to !== '/departments' || session.role !== 'employee');
@@ -436,6 +447,7 @@ function AuthenticatedShell({ session, logout }: { session: User; logout: () => 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage session={session} />} />
           <Route path="/employees" element={<EmployeesPage session={session} />} />
+          <Route path="/attendance" element={<AttendancePage session={session} />} />
           <Route path="/departments" element={<DepartmentsPage session={session} />} />
           <Route path="/leave-requests" element={<LeavePage session={session} />} />
         </Routes>
@@ -1613,6 +1625,193 @@ function LeavePage({ session }: { session: User }) {
   );
 }
 
+function AttendancePage({ session }: { session: User }) {
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [activeRecord, setActiveRecord] = useState<AttendanceRecord | null>(null);
+  const [canClock, setCanClock] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: 20, total: 0, totalPages: 0 });
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const loadAttendance = async () => {
+      try {
+        const query = new URLSearchParams({ page: String(page), pageSize: '20' });
+        const result = await apiFetch<{
+          attendanceRecords: AttendanceRecord[];
+          activeRecord: AttendanceRecord | null;
+          canClock: boolean;
+          pagination: Pagination;
+        }>(`/attendance?${query}`);
+        if (!active) return;
+        setRecords(result.attendanceRecords);
+        setActiveRecord(result.activeRecord);
+        setCanClock(result.canClock);
+        setPagination(result.pagination);
+        setError('');
+      } catch (requestError) {
+        if (active) setError(requestError instanceof Error ? requestError.message : 'Unable to load attendance.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    setLoading(true);
+    void loadAttendance();
+    return () => {
+      active = false;
+    };
+  }, [page, refreshKey]);
+
+  const updateClock = async () => {
+    const action = activeRecord ? 'clock-out' : 'clock-in';
+    setSubmitting(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const result = await apiFetch<{ attendanceRecord: AttendanceRecord }>(`/attendance/${action}`, {
+        method: 'POST',
+      });
+      setActiveRecord(action === 'clock-in' ? result.attendanceRecord : null);
+      setNotice(action === 'clock-in' ? 'You are now clocked in.' : 'Your attendance session is complete.');
+      setPage(1);
+      setRefreshKey((current) => current + 1);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to update your attendance.');
+      setRefreshKey((current) => current + 1);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const refreshAttendance = () => {
+    setError('');
+    setRefreshKey((current) => current + 1);
+  };
+
+  return (
+    <div className="stack attendance-page">
+      {error ? <div className="error-banner" role="alert">{error}</div> : null}
+      {notice ? <div className="dashboard-notice" role="status">{notice}</div> : null}
+
+      <section className="attendance-status-card">
+        <div>
+          <div className="eyebrow">{activeRecord ? 'Currently clocked in' : 'Attendance status'}</div>
+          <h3>{activeRecord ? `Started ${formatDateTime(activeRecord.clockInAt)}` : 'Ready to clock in'}</h3>
+          <p>
+            {canClock
+              ? activeRecord
+                ? 'Remember to clock out when your work session is complete.'
+                : 'Start a work session to record your attendance.'
+              : 'Clocking requires an active employee profile linked to your work email.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          className={activeRecord ? 'ghost-button attendance-action' : 'primary-button attendance-action'}
+          onClick={() => void updateClock()}
+          disabled={!canClock || loading || submitting}
+        >
+          {activeRecord ? <LogOut size={17} /> : <Clock3 size={17} />}
+          {submitting ? 'Updating...' : activeRecord ? 'Clock out' : 'Clock in'}
+        </button>
+      </section>
+
+      <Card title="Attendance history">
+        <div className="stack">
+          <div className="row-between attendance-toolbar">
+            <span className="muted-copy">
+              {pagination.total
+                ? `${pagination.total} recorded work session${pagination.total === 1 ? '' : 's'}`
+                : 'Your recorded work sessions'}
+            </span>
+            <button type="button" className="ghost-button compact" onClick={refreshAttendance} disabled={loading}>
+              <RefreshCw size={15} className={loading ? 'spin' : ''} />
+              Refresh
+            </button>
+          </div>
+
+          {loading && !records.length ? (
+            <div className="muted-copy" role="status">Loading attendance...</div>
+          ) : records.length ? (
+            <div className="attendance-table-wrap">
+              <table className="data-table attendance-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Employee</th>
+                    <th scope="col">Department</th>
+                    <th scope="col">Clock in</th>
+                    <th scope="col">Clock out</th>
+                    <th scope="col">Duration</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((record) => (
+                    <tr key={record.id}>
+                      <td>
+                        {record.employeeName}
+                        <div className="muted-copy">{record.employeeNumber}</div>
+                      </td>
+                      <td>{record.departmentName}</td>
+                      <td>{formatDateTime(record.clockInAt)}</td>
+                      <td>{record.clockOutAt ? formatDateTime(record.clockOutAt) : '—'}</td>
+                      <td>{record.clockOutAt ? formatDuration(record.clockInAt, record.clockOutAt) : 'In progress'}</td>
+                      <td>
+                        <span className={`status-pill ${record.clockOutAt ? 'inactive' : 'active'}`}>
+                          {record.clockOutAt ? 'Complete' : 'In progress'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-state">
+              {loading ? 'Loading attendance...' : 'No attendance sessions have been recorded yet.'}
+            </div>
+          )}
+
+          {pagination.totalPages > 1 ? (
+            <div className="button-row right-align">
+              <span className="muted-copy">
+                Showing {(pagination.page - 1) * pagination.pageSize + 1}–{Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
+              </span>
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={() => setPage((current) => current - 1)}
+                disabled={page <= 1 || loading}
+              >
+                Previous
+              </button>
+              <span className="muted-copy">Page {page} of {pagination.totalPages}</span>
+              <button
+                type="button"
+                className="ghost-button compact"
+                onClick={() => setPage((current) => current + 1)}
+                disabled={page >= pagination.totalPages || loading}
+              >
+                Next
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </Card>
+      <div className="dashboard-footer">
+        Attendance times are stored in UTC and shown in your local time zone.
+      </div>
+    </div>
+  );
+}
+
 function StatCard({
   label,
   value,
@@ -1673,6 +1872,21 @@ function formatDate(value: string) {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+function formatDuration(start: string, end: string) {
+  const totalMinutes = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 60_000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  return days ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
 }
 
 function formatLongDate(value: Date) {
