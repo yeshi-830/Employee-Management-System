@@ -36,6 +36,11 @@ Use the built-in seeded account:
 - Email: `hr@northstar.example`
 - Password: `Password123!`
 
+For employee self-service attendance, use the seeded employee account:
+
+- Email: `leo.hart@northstar.example`
+- Password: `Password123!`
+
 ## Project structure
 
 - `frontend/`: React application

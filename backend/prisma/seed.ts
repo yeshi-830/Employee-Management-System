@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+const demoPasswordHash = '$2a$10$QkPpRrY0QJfPeJQp49K5m.h0v7KfK8tBc4b8kJoE0U4wWxn7Hsl9uO';
 
 async function main() {
   if (process.env.NODE_ENV === 'production') {
@@ -13,7 +14,7 @@ async function main() {
     update: {},
     create: {
       email: 'hr@northstar.example',
-      password: '$2a$10$QkPpRrY0QJfPeJQp49K5m.h0v7KfK8tBc4b8kJoE0U4wWxn7Hsl9uO',
+      password: demoPasswordHash,
       firstName: 'Ari',
       lastName: 'Green',
       role: 'HR_MANAGER',
@@ -91,6 +92,19 @@ async function main() {
       managerId: manager.id,
       hireDate: new Date('2023-10-04'),
       employmentStatus: 'ACTIVE',
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'leo.hart@northstar.example' },
+    update: {},
+    create: {
+      email: 'leo.hart@northstar.example',
+      password: demoPasswordHash,
+      firstName: 'Leo',
+      lastName: 'Hart',
+      role: 'EMPLOYEE',
+      isActive: true,
     },
   });
 
